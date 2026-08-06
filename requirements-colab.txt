@@ -1,0 +1,61 @@
+# =============================================================================
+# Slot A — Colab install set, PART 1 of 2. USE THIS ONE IN COLAB.
+#
+# Part 2 is requirements-colab-nodeps.txt — beir and FlagEmbedding, installed
+# with --no-deps. Read the header there for why; it is not laziness, those two
+# packages declare dependencies we deliberately refuse.
+#
+# Difference from requirements.txt: torch is NOT listed. Colab ships a torch
+# build compiled against its own CUDA driver; replacing it with a PyPI wheel is
+# the single most common way to break a T4 session. env_check.py verifies the
+# preinstalled torch satisfies the constraints (CUDA available, sm_75, fp16).
+#
+# Install order matters — numpy is pinned first, then everything resolves
+# against it. After BOTH parts finish you MUST do Runtime -> Restart session
+# (numpy is already imported by Colab at startup, so the downgrade only takes
+# effect after a restart). Re-run env_check.py after restarting.
+#
+# Every pin below was checked against PyPI metadata: the version exists, and
+# its declared constraints are mutually satisfiable under numpy 1.26.4.
+# =============================================================================
+
+numpy==1.26.4
+
+# transformers 4.46.3 declares tokenizers<0.21,>=0.20 and huggingface-hub<1.0,
+# >=0.23.2 — the two pins below sit inside those windows on purpose.
+transformers==4.46.3
+tokenizers==0.20.3
+huggingface-hub==0.26.2
+accelerate==1.1.1
+bitsandbytes==0.44.1
+safetensors==0.4.5
+sentencepiece==0.2.0
+
+faiss-cpu==1.9.0            # declares numpy<3.0,>=1.25.0 — satisfied by 1.26.4
+rank-bm25==0.2.2
+sentence-transformers==3.3.1  # declares transformers<5.0.0,>=4.41.0 — fine at 4.46.3
+peft==0.13.2
+datasets==3.1.0
+
+ranx==0.3.20
+numba==0.60.0               # the numpy-1.26-compatible numba line
+# pytrec-eval-terrier is the maintained fork of pytrec_eval. It ships prebuilt
+# wheels (no g++ source build) and still imports as `import pytrec_eval`.
+# NOTE: 0.5.x releases are 0.5.1 / 0.5.2 / 0.5.3 / 0.5.10 — there is no 0.5.6.
+pytrec-eval-terrier==0.5.10
+
+pandas==2.2.3
+scipy==1.14.1
+tqdm==4.67.1
+pyyaml==6.0.2
+tiktoken==0.8.0
+orjson==3.10.12
+tabulate==0.9.0
+
+beir==2.0.0
+FlagEmbedding==1.3.5
+
+# protobuf is intentionally unpinned — Colab's base image ships one that its own
+# grpc/tensorflow stack depends on, and pinning it starts a fight we do not need.
+# The gemma tokenizer wants it; if a slow->fast tokenizer conversion complains,
+# `pip install protobuf` then and only then.

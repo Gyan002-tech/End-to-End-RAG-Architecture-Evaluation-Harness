@@ -1,0 +1,99 @@
+# =============================================================================
+# Slot A — Retrieval + Evaluation Harness :: pinned dependency set
+#
+# TARGET ENVIRONMENT (locked by slotA-methodology.md §3):
+#   GPU        : NVIDIA T4, 16 GB, compute capability sm_75 (Turing)
+#   Precision  : fp16 ONLY — no bf16 (bf16 needs sm_80+ / Ampere)
+#   Attention  : PyTorch SDPA — NO FlashAttention-2 (also needs sm_80+)
+#   Vector idx : FAISS **CPU**, IndexFlatIP (exact). SciFact is ~5K docs, so
+#                exact brute-force search is milliseconds AND correct. faiss-gpu
+#                is deliberately NOT used: ANN/approximation would inject recall
+#                error into the very retrieval metric we are measuring.
+#
+# COLAB USERS: do NOT `pip install -r requirements.txt` blindly. Colab already
+# ships a CUDA-matched torch build; reinstalling torch from PyPI can pull a
+# wheel that mismatches the driver. Use requirements-colab.txt instead, which
+# omits torch and lets the preinstalled build stand (env_check.py then verifies
+# it satisfies the constraints above).
+#
+# TWO PACKAGES CANNOT BE INSTALLED FROM THIS FILE IN ONE RESOLVE: `beir` and
+# `FlagEmbedding` are sdist-only with dynamic metadata and declare dependencies
+# we deliberately refuse (an exact elasticsearch==7.9.1 pin; a duplicate
+# pytrec_eval; a training-side dep tail). They are listed at the bottom under
+# "install these with --no-deps" and are broken out into
+# requirements-colab-nodeps.txt, which documents the reasoning in full.
+# =============================================================================
+
+# --- numeric anchor -----------------------------------------------------------
+# numpy 1.26.x is the single pin that keeps numba (via ranx), faiss, beir and
+# pandas mutually compatible. numpy 2.x breaks numba's ABI range and several
+# faiss/beir builds. Pin this FIRST; a mismatch here cascades everywhere.
+numpy==1.26.4
+
+# --- torch stack (T4 / sm_75 / fp16 / SDPA) -----------------------------------
+# torch 2.5.1 cu124 wheels include sm_75 in their compiled arch list and expose
+# scaled_dot_product_attention, which is what attn_implementation="sdpa" uses.
+torch==2.5.1
+# transformers 4.46.3: Qwen2.5 (Qwen2 arch) supported, SDPA supported, and
+# satisfies FlagEmbedding 1.3.x's transformers>=4.44.2 floor.
+transformers==4.46.3
+accelerate==1.1.1
+# bitsandbytes 0.44.1 supports Turing (sm_75) for 4-bit NF4 — the fallback if
+# bge-reranker-v2-gemma OOMs even when staged alone. If used, the bullet says so.
+bitsandbytes==0.44.1
+safetensors==0.4.5
+sentencepiece==0.2.0
+tokenizers==0.20.3
+huggingface-hub==0.26.2
+
+# --- retrieval ----------------------------------------------------------------
+faiss-cpu==1.9.0       # declares numpy<3.0,>=1.25.0 — satisfied by 1.26.4
+rank-bm25==0.2.2
+sentence-transformers==3.3.1   # declares transformers<5.0.0,>=4.41.0 — fine at 4.46.3
+peft==0.13.2
+
+# --- dataset ------------------------------------------------------------------
+datasets==3.1.0
+
+# --- metrics ------------------------------------------------------------------
+# Two independent implementations on purpose: our hand-written metrics are the
+# thing we must be able to defend, ranx/pytrec_eval are the production numbers
+# that handle graded relevance and TREC edge cases. Disagreement is a bug.
+ranx==0.3.20
+numba==0.60.0          # ranx dependency; 0.60.x is the numpy-1.26-compatible line
+# pytrec-eval-terrier is the maintained fork of pytrec_eval that ships prebuilt
+# wheels. It still imports as `import pytrec_eval` — same API, no source build.
+# NOTE: the 0.5.x line is 0.5.1 / 0.5.2 / 0.5.3 / 0.5.10. There is no 0.5.6.
+pytrec-eval-terrier==0.5.10
+
+# --- support ------------------------------------------------------------------
+pandas==2.2.3
+scipy==1.14.1          # Cohen's kappa / QWK for the judge-vs-human agreement set
+tqdm==4.67.1
+pyyaml==6.0.2
+tiktoken==0.8.0        # repo A's chunk_text() counts tokens with cl100k_base
+orjson==3.10.12
+tabulate==0.9.0        # artifacts/report/table.md rendering
+
+# --- install these with --no-deps ---------------------------------------------
+# See requirements-colab-nodeps.txt for the full reasoning. Short version:
+#   beir==2.0.0        declares elasticsearch==7.9.1 (exact pin, 2020 release, for
+#                      a retriever we never import) and pytrec_eval (source-built
+#                      duplicate of the terrier fork above).
+#   FlagEmbedding==1.3.5  1.3.5 not 1.3.3 — 1.3.3 carries a tighter transformers
+#                      constraint and is what caused ResolutionImpossible. Its
+#                      declared dep tail is for the training side we never touch.
+# Runtime needs of both are already pinned above.
+#
+#   pip install --no-deps beir==2.0.0 FlagEmbedding==1.3.5
+#
+# FlagEmbedding supplies the bge reranker family:
+#   FlagReranker    -> BAAI/bge-reranker-v2-m3      (cross-encoder arm)
+#   FlagLLMReranker -> BAAI/bge-reranker-v2-gemma   (LLM-reranker arm)
+
+# --- deliberately absent ------------------------------------------------------
+# faiss-gpu          : approximation would contaminate the retrieval metric
+# flash-attn         : requires sm_80+; T4 is sm_75. Use SDPA.
+# qdrant-client      : repo A's vector store; replaced by FAISS flat, no server
+# openai             : repo A's judge/generator; replaced by local Qwen2.5
+# elasticsearch      : beir's ES retriever is unused; see --no-deps note above

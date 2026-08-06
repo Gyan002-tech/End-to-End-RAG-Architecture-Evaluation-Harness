@@ -1,0 +1,76 @@
+# ---------------------------------------------------------------------------
+# Slot A — Retrieval + Evaluation Harness
+# Everything derived (indexes, runs, scores, reports) and everything vendored
+# (reference repos) stays out of git. Only source + notes are tracked.
+# ---------------------------------------------------------------------------
+
+# Derived artifacts — regenerable by re-running the stage that made them.
+# NOTE: the authenticity checklist requires every number be traceable to a
+# JSON file in artifacts/, so back these up to Drive, not to git.
+artifacts/
+
+# Study-only reference repos (cloned, never run to completion, numbers never trusted)
+# reference/ is tracked by parent repository
+
+
+# Model / dataset caches
+.cache/
+**/.cache/
+huggingface/
+hf_cache/
+transformers_cache/
+sentence_transformers_cache/
+torch_cache/
+datasets_cache/
+flagembedding_cache/
+
+# Serialized index + model blobs
+*.index
+*.faiss
+*.pkl
+*.pickle
+*.npy
+*.npz
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+
+# BEIR / SciFact raw downloads
+data/
+datasets/
+*.zip
+*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
