@@ -1,127 +1,93 @@
-# Implementation Plan: Stage 2 — Retrieval Runs, RRF Fusion & Hand-Written Metrics Evaluation
+# Implementation Plan: Stage 3 — Multi-Model Staged Reranking & 3x3 Factorial Grid
 
-Document Version: 1.0
-Target Stage: Stage 2 (Phase 1 Baseline Retrieval & Metric Evaluation)
-Specification Source: slotA-methodology.md (§2, §4, §5, §9 Step 2) & notes/stage1-verification.md (§3)
+Document Version: 2.0
+Target Stage: Stage 3 (Phase 1 Multi-Model Reranking & Pareto Frontier Selection)
+Specification Source: slotA-methodology.md (§2, §3, §4, §9 Step 3) & notes/stage2-verification.md
 
 ===============================================================================
-1. STAGE 2 OBJECTIVES & SCOPE
+1. STAGE 3 OBJECTIVES & SCOPE
 ===============================================================================
 
-The primary goal of Stage 2 is to execute the retrieval arm of Phase 1 across all 300 SciFact test queries, compute retrieval metrics (Recall@k, MRR, nDCG@k, P@1) and search latency for 3 candidate generation arms, and verify all metric implementations against reference unit tests before proceeding to reranking (Stage 3).
+Stage 3 completes Phase 1 of the experimental design by scoring all 3 candidate sets generated in Stage 2 (BM25, Dense bge-base, RRF Hybrid) through two modern reranker champions:
+  1. `BAAI/bge-reranker-v2-m3` (Cross-Encoder champion)
+  2. `BAAI/bge-reranker-v2-gemma` (Decoder/LLM-based reranker champion, 2.5B parameters)
 
 Key Deliverables:
-- Candidate Retrieval: Retrieve top-50 documents per query for 3 arms:
-  1. BM25 (Sparse lexical baseline)
-  2. Dense (BAAI/bge-base-en-v1.5 bi-encoder)
-  3. RRF Hybrid (Reciprocal Rank Fusion of BM25 + Dense)
-- Mandatory Chunk-to-Doc Collapse: Collapse chunk-level FAISS vectors to document level using max score aggregation prior to metric evaluation and RRF fusion.
-- Hand-written Metrics Module: Implement pure-Python metric functions for Recall@k, MRR, nDCG@k, and P@1.
-- Unit Test Verification: Verify hand-written metrics against reference repo B's pinned canary dataset (Recall@5 = 0.750, MRR = 0.625, nDCG@5 = 0.627) and cross-validate against ranx / pytrec_eval.
-- Output Artifacts: Persist query candidate runs and evaluation summary JSON files in `artifacts/runs/`.
+- 6 Reranked Runs: Rerank the top-50 candidates for all 300 test queries across 3 candidate sets x 2 rerankers.
+- Staged GPU Memory Management: Enforce strict single-model VRAM residency (T4 16GB ceiling). Load m3, score all arms, unload from VRAM; then load gemma (fp16 or 4-bit fallback), score all arms, unload.
+- Complete 3x3 Factorial Grid (9 cells): Evaluate Recall@10, MRR, nDCG@10, P@1, and total end-to-end query latency for all 9 cells.
+- Quality-vs-Latency Pareto Frontier Selection: Construct the Pareto curve, identify dominated configurations, and select the top 2-3 survivor configurations to advance to Phase 2 (Generation & Faithfulness).
 
 ===============================================================================
-2. TECHNICAL ARCHITECTURE & DATA FLOW
+2. RERANKER MODELS & STAGED GPU ARCHITECTURE
 ===============================================================================
 
-Inputs:
-- `artifacts/index/faiss.index`: Dense FAISS IndexFlatIP (5,661 unit vectors, dim 768)
-- `artifacts/index/bm25.pkl`: Serialized rank_bm25.BM25Okapi instance (5,183 docs)
-- `artifacts/index/docmap.json`: Unit ordinal <-> docid mapping & chunking policy
-- `artifacts/index/index_meta.json`: Stage 1 indexing metadata
-- BEIR SciFact test dataset (`corpus`, `queries`, `qrels`) loaded via `src/common.py`
+Model 1: `BAAI/bge-reranker-v2-m3`
+- Type: Cross-Encoder (sequence classification).
+- Size / VRAM: ~1.1 GiB (fp16 on CUDA with SDPA attention).
+- Scoring: Computes similarity logits for (query, doc_text) pairs in batch.
 
-Retrieval Pipeline (per query):
+Model 2: `BAAI/bge-reranker-v2-gemma`
+- Type: Decoder-based / LLM reranker (2.5B parameters).
+- Size / VRAM: ~5.0 GiB (fp16 on CUDA). If VRAM tight, fallback to 4-bit quantization via `bitsandbytes` (`load_in_4bit=True`).
+- Scoring: Causal LLM logit extraction for query-document relevance.
 
-1. BM25 Arm:
-   - Tokenize query string using `str.lower().split()`.
-   - Score all 5,183 documents with `bm25.get_scores()`.
-   - Select top 50 documents sorted by BM25 score descending.
-
-2. Dense Arm (bge-base-en-v1.5):
-   - Embed 300 test queries in batch using GPU fp16 with SDPA attention.
-   - Prepend `BGE_QUERY_INSTRUCTION` ("Represent this sentence for searching relevant passages: ").
-   - Search FAISS `IndexFlatIP` for top-200 unit ordinals per query.
-   - Collapse unit ordinals to `docid` using max score aggregation (`docmap.json`).
-   - Select top 50 unique documents sorted by max chunk cosine score descending.
-
-3. RRF Hybrid Arm:
-   - Perform Reciprocal Rank Fusion on doc-level rank lists from BM25 top-50 and collapsed Dense top-50:
-     RRF_score(doc_id) = 1.0 / (60 + rank_bm25(doc_id)) + 1.0 / (60 + rank_dense(doc_id))
-   - Rank documents by RRF_score descending to select top-50 hybrid documents.
-
-Outputs (`artifacts/runs/`):
-- `retrieval_bm25.json`: Candidate list & timings for BM25 arm.
-- `retrieval_dense.json`: Candidate list & timings for Dense arm.
-- `retrieval_rrf.json`: Candidate list & timings for RRF Hybrid arm.
-- `stage2_retrieval_metrics.json`: Final Phase 1 quality-vs-latency comparison table.
+Memory Residency Policy (Non-Negotiable §3):
+- Only ONE model resident in VRAM at any time.
+- After m3 finishes all 3 candidate sets, `del model`, `torch.cuda.empty_cache()`, `gc.collect()` before instantiating gemma.
+- Persistent disk storage: Every run is saved to `artifacts/runs/` immediately upon completion so session timeouts never lose work.
 
 ===============================================================================
-3. METRIC MATHEMATICS & IMPLEMENTATION SPECIFICATION
+3. DATA FLOW & ARTIFACT SPECIFICATION
 ===============================================================================
 
-All metrics will be implemented from first principles in `src/metrics.py` (or integrated helper) and verified against `pytrec_eval` / `ranx`.
+Input Artifacts (`artifacts/runs/` & `artifacts/index/`):
+- `artifacts/runs/retrieval_bm25.json`: BM25 candidate runs (top-50)
+- `artifacts/runs/retrieval_dense.json`: Dense candidate runs (top-50)
+- `artifacts/runs/retrieval_rrf.json`: RRF Hybrid candidate runs (top-50)
+- `artifacts/index/docmap.json`: Document text lookup (`docid_to_text`)
+- BEIR SciFact test queries & qrels loaded via `src/common.py`
 
-Mathematical Definitions:
-
-1. Recall@k:
-   Recall@k(q) = |{retrieved top-k docs} ∩ {gold relevant docs for q}| / |{gold relevant docs for q}|
-
-2. MRR (Mean Reciprocal Rank):
-   MRR(q) = 1 / rank(first relevant doc in retrieved list)  [or 0.0 if no relevant doc retrieved]
-   MRR = mean over all queries.
-
-3. nDCG@k (Normalized Discounted Cumulative Gain):
-   DCG@k(q) = Σ_{i=1}^k (2^{rel_i} - 1) / log2(i + 1)
-   IDCG@k(q) = DCG@k under ideal sorting of gold relevant docs.
-   nDCG@k(q) = DCG@k(q) / IDCG@k(q)
-   (For SciFact binary relevance, rel_i ∈ {0, 1}, so 2^{rel_i} - 1 = rel_i).
-
-4. Precision@1 (P@1):
-   P@1(q) = 1.0 if top-1 document is relevant else 0.0.
-
-Verification Test Vector (Reference Repo B Canary Set):
-  GOLD = {"q1": {"d3"}, "q2": {"d7", "d2"}, "q3": {"d11"}, "q4": {"d5"}}
-  RUNS = {
-      "q1": ["d8", "d3", "d1", "d4", "d2", "d9", "d6", "d10", "d12", "d13"],
-      "q2": ["d2", "d6", "d4", "d7", "d1", "d3", "d8", "d11", "d5", "d9"],
-      "q3": ["d11", "d2", "d3", "d4", "d1", "d6", "d7", "d8", "d10", "d12"],
-      "q4": ["d1", "d2", "d3", "d6", "d8", "d9", "d10", "d12", "d13", "d14"]
-  }
-  Expected Metric Values @ k=5:
-    - Recall@5 = 0.750
-    - MRR = 0.625
-    - nDCG@5 = 0.627
+Output Artifacts (`artifacts/runs/`):
+- `rerank_m3_bm25.json`: Reranked candidates & metrics for BM25 + bge-v2-m3
+- `rerank_m3_dense.json`: Reranked candidates & metrics for Dense + bge-v2-m3
+- `rerank_m3_rrf.json`: Reranked candidates & metrics for RRF + bge-v2-m3
+- `rerank_gemma_bm25.json`: Reranked candidates & metrics for BM25 + bge-v2-gemma
+- `rerank_gemma_dense.json`: Reranked candidates & metrics for Dense + bge-v2-gemma
+- `rerank_gemma_rrf.json`: Reranked candidates & metrics for RRF + bge-v2-gemma
+- `stage3_rerank_metrics.json`: Complete 9-cell factorial grid, Pareto frontier analysis, and Phase 2 survivor selections.
 
 ===============================================================================
 4. STEP-BY-STEP IMPLEMENTATION PLAN
 ===============================================================================
 
-Step 1: Module Creation (`src/metrics.py`)
-- Write standalone, pure-Python metric functions (`recall_at_k`, `reciprocal_rank`, `ndcg_at_k`, `evaluate_run`).
-- Include unit tests verifying against the reference test vector.
+Step 1: Reranker Wrappers Module (`src/rerankers.py`)
+- Implement `M3Reranker` class wrapping `FlagEmbedding.FlagReranker` or `transformers.AutoModelForSequenceClassification` with batching and fp16 SDPA support.
+- Implement `GemmaReranker` class wrapping `FlagEmbedding.FlagLLMReranker` or `transformers.AutoModelForCausalLM` with optional 4-bit bitsandbytes fallback.
+- Standardize interface: `rerank_candidates(query_text, candidate_docs) -> List[Tuple[doc_id, score, text]]`.
 
-Step 2: Script Creation (`src/02_retrieve.py`)
-- Load Stage 1 artifacts (`faiss.index`, `bm25.pkl`, `docmap.json`, `index_meta.json`) and SciFact dataset.
-- Implement candidate retrieval loops for BM25, Dense (with max-collapse), and RRF Hybrid.
-- Measure per-query latency (ms) for each arm (batch query embedding vs per-query search timing).
-- Compute full evaluation table (Recall@{5,10,20,50}, MRR, nDCG@{5,10,20}, P@1, Latency mean/p95).
-- Write `retrieval_bm25.json`, `retrieval_dense.json`, `retrieval_rrf.json`, and `stage2_retrieval_metrics.json`.
+Step 2: Staged Reranking Pipeline (`src/03_rerank.py`)
+- Load Stage 2 candidate runs (`retrieval_bm25.json`, `retrieval_dense.json`, `retrieval_rrf.json`) and document texts.
+- **Stage 3A (m3 Reranking):** Load `bge-v2-m3`, rerank all 3 candidate sets, measure per-query rerank latency, evaluate metrics, save `rerank_m3_*.json` files. Unload m3 from GPU VRAM.
+- **Stage 3B (gemma Reranking):** Load `bge-v2-gemma`, rerank all 3 candidate sets, measure per-query rerank latency, evaluate metrics, save `rerank_gemma_*.json` files. Unload gemma from GPU VRAM.
+- Assemble full 3x3 Factorial Grid matrix (9 cells).
+- Compute Pareto Frontier (nDCG@10 vs Total Query Latency ms), identify non-dominated knee configurations, and output `stage3_rerank_metrics.json`.
 
-Step 3: Verification Script (`src/verify_stage2.py`)
-- Cold reload candidate run files and metrics from `artifacts/runs/`.
-- Validate run structure (all 300 test queries present, top-50 documents per query, docids resolve).
-- Re-run metrics independently using `pytrec_eval` and `ranx` to confirm 100% numerical parity with custom metrics.
-- Output Phase 1 Retrieval Table (3 rows) and print pass/fail verdict.
+Step 3: Verification Script (`src/verify_stage3.py`)
+- Cold reload all 9 run JSONs and `stage3_rerank_metrics.json` from `artifacts/runs/`.
+- Validate candidate structure (300 test queries, 50 candidates/query, docids resolve).
+- Cross-validate metrics against `pytrec_eval`.
+- Render the complete **3x3 Factorial Grid Table (9 cells)**.
+- Report Pareto Frontier Ranking & list top 2-3 survivor configurations.
 
 ===============================================================================
 5. COLAB EXECUTION & VERIFICATION COMMANDS
 ===============================================================================
 
-Files created/modified in Stage 2:
-- `src/metrics.py`
-- `src/02_retrieve.py`
-- `src/verify_stage2.py`
+Files created/modified in Stage 3:
+- `src/rerankers.py`
+- `src/03_rerank.py`
+- `src/verify_stage3.py`
 
 Commands to run on Colab (GPU environment):
 ```python
@@ -130,19 +96,19 @@ PROJECT = '/content/drive/MyDrive/slotA-rag-harness'
 os.environ['SLOTA_ROOT'] = PROJECT
 os.chdir(PROJECT)
 
-# Execute candidate retrieval & metric generation across 3 arms
-!python src/02_retrieve.py
+# Execute multi-model staged reranking across all 3 candidate sets
+!python src/03_rerank.py
 
-# Verify outputs, validate metrics with pytrec_eval/ranx in fresh process
-!python src/verify_stage2.py
+# Verify all 9 grid cells, metrics, and Pareto frontier in fresh process
+!python src/verify_stage3.py
 ```
 
 ===============================================================================
 6. CHECKS & ACCEPTANCE CRITERIA
 ===============================================================================
-[ ] All 300 test queries produce 50 candidates in each of the 3 arms.
-[ ] Max-collapse properly maps 5,661 unit ordinals down to 5,183 docids without duplicate docids in candidate lists.
-[ ] RRF fusion runs on doc-level lists with k=60.
-[ ] Hand-written metrics pass canary unit tests (Recall@5 = 0.750, MRR = 0.625, nDCG@5 = 0.627).
-[ ] Hand-written metrics match pytrec_eval and ranx outputs on SciFact run outputs to within 1e-4 tolerance.
-[ ] All 4 JSON output files saved in `artifacts/runs/` and verified reloadable.
+[ ] All 6 reranked runs produce top-50 reranked candidates for all 300 test queries.
+[ ] Only ONE reranker model is loaded in VRAM at any time (`m3` fully unloaded before `gemma` loads).
+[ ] If `gemma` is quantized to 4-bit due to VRAM bounds, quantization is recorded in metadata.
+[ ] Complete 3x3 grid (9 cells) computed with Recall@10, MRR, nDCG@10, P@1, and Total Latency.
+[ ] All 9 cells cross-validated with `pytrec_eval`.
+[ ] Pareto frontier calculated, dominated configs identified, and top 2-3 survivors selected for Phase 2.
