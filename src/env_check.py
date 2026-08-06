@@ -1,18 +1,9 @@
 #!/usr/bin/env python3
 """Stage 0 gate: verify the runtime matches what slotA-methodology.md §3 assumes.
 
-The plan is written against a specific machine — T4, 16 GB, sm_75, fp16, SDPA.
-Free-tier GPU assignment varies, and a K80/P100/L4 day changes the plan (§3:
-"Verify GPU allocation at session start"). Run this FIRST, every session,
-before any indexing or model load.
-
 Usage:
-    python env_check.py              # exits 1 if no CUDA GPU is visible
-    python env_check.py --allow-cpu  # report only, always exit 0 (CPU stages 0-2)
-
-Exit codes:
-    0  environment acceptable
-    1  no CUDA GPU (hard fail unless --allow-cpu)
+    python src/env_check.py              # exits 1 if no CUDA GPU is visible
+    python src/env_check.py --allow-cpu  # report only, always exit 0 (CPU stages 0-2)
 """
 
 from __future__ import annotations
@@ -20,8 +11,11 @@ from __future__ import annotations
 import argparse
 import platform
 import sys
+from pathlib import Path
 
-# --- what the plan assumes ----------------------------------------------------
+# Ensure project root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 EXPECTED_GPU_SUBSTRING = "T4"
 EXPECTED_CAPABILITY = (7, 5)  # sm_75, Turing
 BF16_MIN_CAPABILITY = (8, 0)  # native bf16 needs Ampere+
@@ -32,12 +26,6 @@ def _line(label: str, value: object) -> None:
 
 
 def _dist_version(*candidates: str) -> str:
-    """Version of the first installed distribution among `candidates`.
-
-    Takes several names because some packages are published under a different
-    distribution name than they import as — notably pytrec_eval, which we
-    install as `pytrec-eval-terrier` but import as `pytrec_eval`.
-    """
     from importlib.metadata import PackageNotFoundError, version
 
     for name in candidates:
@@ -54,12 +42,11 @@ def _importable(module: str) -> tuple[bool, str]:
     try:
         importlib.import_module(module)
         return True, ""
-    except Exception as exc:  # noqa: BLE001 - report anything, don't crash the gate
+    except Exception as exc:  # noqa: BLE001
         return False, f"{type(exc).__name__}: {exc}"
 
 
 def check_torch_and_gpu() -> dict:
-    """Report torch/CUDA/GPU facts. Returns a dict of findings for the verdict."""
     findings: dict = {"cuda": False, "device_name": None, "capability": None}
 
     print("\n[1] torch / CUDA")
@@ -97,21 +84,16 @@ def check_torch_and_gpu() -> dict:
     _line("multiprocessors (SMs)", props.multi_processor_count)
     _line("arch list in this build", ", ".join(torch.cuda.get_arch_list()))
 
-    # --- precision ------------------------------------------------------------
     print("\n[3] Precision support (plan requires fp16, forbids bf16)")
     native_bf16 = cap >= BF16_MIN_CAPABILITY
     _line("native bf16 (cc >= 8.0)?", native_bf16)
 
-    # torch.cuda.is_bf16_supported() can answer True on Turing because newer
-    # torch counts *emulated* bf16. That is NOT the same as native bf16 and is
-    # not what §3 means. Report it, but label it.
     try:
         torch_says = torch.cuda.is_bf16_supported()
     except Exception as exc:  # noqa: BLE001
         torch_says = f"raised {type(exc).__name__}"
     _line("torch.cuda.is_bf16_supported()", f"{torch_says}   <- may count emulation, do not trust")
 
-    # Empirical: can a bf16 matmul actually run, and does fp16 work?
     for dtype, label in ((torch.float16, "fp16"), (torch.bfloat16, "bf16")):
         try:
             a = torch.randn(64, 64, device="cuda", dtype=dtype)
@@ -121,7 +103,6 @@ def check_torch_and_gpu() -> dict:
         except Exception as exc:  # noqa: BLE001
             _line(f"empirical {label} matmul", f"FAILED — {type(exc).__name__}: {exc}")
 
-    # --- attention backend ----------------------------------------------------
     print("\n[4] Attention backend (plan requires SDPA, forbids FlashAttention-2)")
     has_sdpa = hasattr(torch.nn.functional, "scaled_dot_product_attention")
     _line("F.scaled_dot_product_attention", "present" if has_sdpa else "MISSING")
@@ -143,7 +124,6 @@ def check_versions() -> None:
     _line("rank_bm25", _dist_version("rank-bm25", "rank_bm25"))
     _line("ranx", _dist_version("ranx"))
     _line("pytrec_eval", _dist_version("pytrec-eval-terrier", "pytrec_eval", "pytrec-eval"))
-    # Not requested explicitly but load-bearing for later stages — cheap to know now.
     _line("numpy", _dist_version("numpy"))
     _line("sentence-transformers", _dist_version("sentence-transformers"))
     _line("FlagEmbedding", _dist_version("FlagEmbedding"))
@@ -165,8 +145,6 @@ def check_versions() -> None:
         ok, err = _importable(module)
         _line(f"import {module}", "OK" if ok else f"FAILED — {err}")
 
-    # faiss exposes its own version separately from the dist metadata; and if it
-    # was built with GPU support that is worth flagging, since the plan wants CPU.
     try:
         import faiss
 

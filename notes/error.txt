@@ -1,0 +1,40 @@
+
+==========================================================================
+[1] Load Stage 1 artifacts & SciFact test dataset
+==========================================================================
+100% 5183/5183 [00:00<00:00, 79729.03it/s]
+  test queries        : 300
+  corpus docs         : 5183
+  docmap units        : 5661 (dedup_needed=True)
+  FAISS ntotal        : 5661
+2026-08-06 07:14:19.852248: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+
+==========================================================================
+[2] BM25 Candidate Retrieval (Sparse Arm)
+==========================================================================
+  BM25 retrieval total: 5.57s (18.50 ms/query avg)
+
+==========================================================================
+[3] Dense Candidate Retrieval (BAAI/bge-base-en-v1.5 + Max-Collapse)
+==========================================================================
+  Dense embed time    : 0.52s (1.73 ms/query)
+  Dense FAISS search  : 0.28s (0.94 ms/query avg)
+  Total Dense latency : 2.66 ms/query avg
+
+==========================================================================
+[4] RRF Hybrid Candidate Retrieval (BM25 + Dense Fusion, k=60)
+==========================================================================
+  RRF fusion total    : 12.49 ms (0.0416 ms/query avg)
+
+==========================================================================
+[5] Compute Hand-Written Retrieval Metrics & Latency Summary
+==========================================================================
+Traceback (most recent call last):
+  File "/content/drive/MyDrive/slotA-rag-harness/src/02_retrieve.py", line 328, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/content/drive/MyDrive/slotA-rag-harness/src/02_retrieve.py", line 235, in main
+    "p@1": bm25_eval["p@1"],
+           ~~~~~~~~~^^^^^^^
+KeyError: 'p@1'

@@ -15,8 +15,8 @@ Checks:
       docmap. Wiring only. No metrics are computed here; that is Stage 2.
 
 Usage:
-    python verify_stage1.py
-    python verify_stage1.py --qid 13 --docids 4983,23389,42212
+    python src/verify_stage1.py
+    python src/verify_stage1.py --qid 13 --docids 4983,23389,42212
 """
 
 from __future__ import annotations
@@ -25,7 +25,8 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Ensure project root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np  # noqa: E402
 
@@ -74,7 +75,7 @@ def main() -> int:
     import torch
 
     if not stage1_artifacts_present():
-        print("Stage 1 artifacts missing. Run: python 01_index.py")
+        print("Stage 1 artifacts missing. Run: python src/01_index.py")
         return 1
 
     failures: list[str] = []
@@ -152,10 +153,6 @@ def main() -> int:
     else:
         ords = [0, docmap.n_units // 2, docmap.n_units - 1]
         probe_docids = [docmap.docid(o) for o in ords]
-        # Position-chosen probes are all likely to be single-chunk docs, which cannot
-        # exercise the failure mode chunking actually introduces: a doc's 2nd or 3rd
-        # vector landing at the wrong ordinal. Force multi-chunk docs into the probe
-        # set — the deepest one (most chunks) and a shallow one (fewest, i.e. 2).
         if docmap.dedup_needed:
             multi = sorted(
                 (d for d, o in docmap.docid_to_ordinals.items() if len(o) > 1),
@@ -185,8 +182,6 @@ def main() -> int:
         print(f"      ordinals            : {ordinals}")
         print(f"      ordinal->docid back : {back}   {'OK' if fwd_ok else 'FAIL'}")
         if len(ordinals) > 1:
-            # build_units() appends a doc's chunks consecutively, so a gap here means
-            # the ordinal space and the chunk order have come apart.
             contiguous = ordinals == list(range(ordinals[0], ordinals[0] + len(ordinals)))
             print(f"      ordinals contiguous : {contiguous}   {'OK' if contiguous else 'FAIL'}")
             if not contiguous:
@@ -202,19 +197,14 @@ def main() -> int:
             failures.append(f"docid {docid} missing from bm25 doc_ids")
         print()
 
-    # The real alignment proof: does the vector FAISS stored at this ordinal
-    # actually encode THIS document? A shuffled docmap passes every check above
-    # and fails only here — which is exactly the silent corruption we fear.
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     model = load_embedder(device=device)
     print("  Alignment proof — re-embed the exact unit text and compare to the stored vector:")
     if docmap.ordinal_to_text is None:
         print("      CANNOT RUN — this docmap.json predates ordinal_to_text.")
-        print("      Rebuild with `python 01_index.py --force` to enable the proof.")
+        print("      Rebuild with `python src/01_index.py --force` to enable the proof.")
         failures.append("alignment proof unavailable: docmap.json has no ordinal_to_text")
     else:
-        # Probe EVERY ordinal of each docid, not just the first — under chunking a
-        # doc owns several rows and any one of them could be misplaced.
         probe_ordinals: list[tuple[int, str]] = []
         for docid in probe_docids:
             for o in docmap.ordinals(docid):
@@ -230,9 +220,6 @@ def main() -> int:
             if not ok:
                 failures.append(f"ordinal {ordinal}/docid {docid} vector does not match its unit text")
 
-        # Negative control: the first probe's stored vector against a DIFFERENT
-        # unit's text must NOT score ~1.0. Without this, a comparison bug that
-        # always returned 1.0 would read as a clean pass.
         if len(probe_ordinals) > 1:
             o0, d0 = probe_ordinals[0]
             o1, d1 = probe_ordinals[-1]

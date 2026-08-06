@@ -46,8 +46,8 @@ The output log from `stage1-output.md` (running `01_index.py` and `verify_stage1
 No files need to be modified for Stage 1 as it is already complete and verified. 
 
 ### Files Present for Stage 1:
-- `01_index.py`
-- `verify_stage1.py`
+- `src/01_index.py`
+- `src/verify_stage1.py`
 - `src/common.py`
 
 ### Commands Used in Colab to Run Stage 1:
@@ -58,10 +58,10 @@ os.environ['SLOTA_ROOT'] = PROJECT
 os.chdir(PROJECT)
 
 # Run index build
-!python 01_index.py
+!python src/01_index.py
 
 # Verify index artifacts in fresh process
-!python verify_stage1.py
+!python src/verify_stage1.py
 ```
 
 Stage 1 is fully verified and ready. Proceeding to Stage 2 implementation.

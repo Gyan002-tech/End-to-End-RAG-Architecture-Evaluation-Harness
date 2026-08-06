@@ -1,0 +1,148 @@
+# Implementation Plan: Stage 2 — Retrieval Runs, RRF Fusion & Hand-Written Metrics Evaluation
+
+Document Version: 1.0
+Target Stage: Stage 2 (Phase 1 Baseline Retrieval & Metric Evaluation)
+Specification Source: slotA-methodology.md (§2, §4, §5, §9 Step 2) & notes/stage1-verification.md (§3)
+
+===============================================================================
+1. STAGE 2 OBJECTIVES & SCOPE
+===============================================================================
+
+The primary goal of Stage 2 is to execute the retrieval arm of Phase 1 across all 300 SciFact test queries, compute retrieval metrics (Recall@k, MRR, nDCG@k, P@1) and search latency for 3 candidate generation arms, and verify all metric implementations against reference unit tests before proceeding to reranking (Stage 3).
+
+Key Deliverables:
+- Candidate Retrieval: Retrieve top-50 documents per query for 3 arms:
+  1. BM25 (Sparse lexical baseline)
+  2. Dense (BAAI/bge-base-en-v1.5 bi-encoder)
+  3. RRF Hybrid (Reciprocal Rank Fusion of BM25 + Dense)
+- Mandatory Chunk-to-Doc Collapse: Collapse chunk-level FAISS vectors to document level using max score aggregation prior to metric evaluation and RRF fusion.
+- Hand-written Metrics Module: Implement pure-Python metric functions for Recall@k, MRR, nDCG@k, and P@1.
+- Unit Test Verification: Verify hand-written metrics against reference repo B's pinned canary dataset (Recall@5 = 0.750, MRR = 0.625, nDCG@5 = 0.627) and cross-validate against ranx / pytrec_eval.
+- Output Artifacts: Persist query candidate runs and evaluation summary JSON files in `artifacts/runs/`.
+
+===============================================================================
+2. TECHNICAL ARCHITECTURE & DATA FLOW
+===============================================================================
+
+Inputs:
+- `artifacts/index/faiss.index`: Dense FAISS IndexFlatIP (5,661 unit vectors, dim 768)
+- `artifacts/index/bm25.pkl`: Serialized rank_bm25.BM25Okapi instance (5,183 docs)
+- `artifacts/index/docmap.json`: Unit ordinal <-> docid mapping & chunking policy
+- `artifacts/index/index_meta.json`: Stage 1 indexing metadata
+- BEIR SciFact test dataset (`corpus`, `queries`, `qrels`) loaded via `src/common.py`
+
+Retrieval Pipeline (per query):
+
+1. BM25 Arm:
+   - Tokenize query string using `str.lower().split()`.
+   - Score all 5,183 documents with `bm25.get_scores()`.
+   - Select top 50 documents sorted by BM25 score descending.
+
+2. Dense Arm (bge-base-en-v1.5):
+   - Embed 300 test queries in batch using GPU fp16 with SDPA attention.
+   - Prepend `BGE_QUERY_INSTRUCTION` ("Represent this sentence for searching relevant passages: ").
+   - Search FAISS `IndexFlatIP` for top-200 unit ordinals per query.
+   - Collapse unit ordinals to `docid` using max score aggregation (`docmap.json`).
+   - Select top 50 unique documents sorted by max chunk cosine score descending.
+
+3. RRF Hybrid Arm:
+   - Perform Reciprocal Rank Fusion on doc-level rank lists from BM25 top-50 and collapsed Dense top-50:
+     RRF_score(doc_id) = 1.0 / (60 + rank_bm25(doc_id)) + 1.0 / (60 + rank_dense(doc_id))
+   - Rank documents by RRF_score descending to select top-50 hybrid documents.
+
+Outputs (`artifacts/runs/`):
+- `retrieval_bm25.json`: Candidate list & timings for BM25 arm.
+- `retrieval_dense.json`: Candidate list & timings for Dense arm.
+- `retrieval_rrf.json`: Candidate list & timings for RRF Hybrid arm.
+- `stage2_retrieval_metrics.json`: Final Phase 1 quality-vs-latency comparison table.
+
+===============================================================================
+3. METRIC MATHEMATICS & IMPLEMENTATION SPECIFICATION
+===============================================================================
+
+All metrics will be implemented from first principles in `src/metrics.py` (or integrated helper) and verified against `pytrec_eval` / `ranx`.
+
+Mathematical Definitions:
+
+1. Recall@k:
+   Recall@k(q) = |{retrieved top-k docs} ∩ {gold relevant docs for q}| / |{gold relevant docs for q}|
+
+2. MRR (Mean Reciprocal Rank):
+   MRR(q) = 1 / rank(first relevant doc in retrieved list)  [or 0.0 if no relevant doc retrieved]
+   MRR = mean over all queries.
+
+3. nDCG@k (Normalized Discounted Cumulative Gain):
+   DCG@k(q) = Σ_{i=1}^k (2^{rel_i} - 1) / log2(i + 1)
+   IDCG@k(q) = DCG@k under ideal sorting of gold relevant docs.
+   nDCG@k(q) = DCG@k(q) / IDCG@k(q)
+   (For SciFact binary relevance, rel_i ∈ {0, 1}, so 2^{rel_i} - 1 = rel_i).
+
+4. Precision@1 (P@1):
+   P@1(q) = 1.0 if top-1 document is relevant else 0.0.
+
+Verification Test Vector (Reference Repo B Canary Set):
+  GOLD = {"q1": {"d3"}, "q2": {"d7", "d2"}, "q3": {"d11"}, "q4": {"d5"}}
+  RUNS = {
+      "q1": ["d8", "d3", "d1", "d4", "d2", "d9", "d6", "d10", "d12", "d13"],
+      "q2": ["d2", "d6", "d4", "d7", "d1", "d3", "d8", "d11", "d5", "d9"],
+      "q3": ["d11", "d2", "d3", "d4", "d1", "d6", "d7", "d8", "d10", "d12"],
+      "q4": ["d1", "d2", "d3", "d6", "d8", "d9", "d10", "d12", "d13", "d14"]
+  }
+  Expected Metric Values @ k=5:
+    - Recall@5 = 0.750
+    - MRR = 0.625
+    - nDCG@5 = 0.627
+
+===============================================================================
+4. STEP-BY-STEP IMPLEMENTATION PLAN
+===============================================================================
+
+Step 1: Module Creation (`src/metrics.py`)
+- Write standalone, pure-Python metric functions (`recall_at_k`, `reciprocal_rank`, `ndcg_at_k`, `evaluate_run`).
+- Include unit tests verifying against the reference test vector.
+
+Step 2: Script Creation (`src/02_retrieve.py`)
+- Load Stage 1 artifacts (`faiss.index`, `bm25.pkl`, `docmap.json`, `index_meta.json`) and SciFact dataset.
+- Implement candidate retrieval loops for BM25, Dense (with max-collapse), and RRF Hybrid.
+- Measure per-query latency (ms) for each arm (batch query embedding vs per-query search timing).
+- Compute full evaluation table (Recall@{5,10,20,50}, MRR, nDCG@{5,10,20}, P@1, Latency mean/p95).
+- Write `retrieval_bm25.json`, `retrieval_dense.json`, `retrieval_rrf.json`, and `stage2_retrieval_metrics.json`.
+
+Step 3: Verification Script (`src/verify_stage2.py`)
+- Cold reload candidate run files and metrics from `artifacts/runs/`.
+- Validate run structure (all 300 test queries present, top-50 documents per query, docids resolve).
+- Re-run metrics independently using `pytrec_eval` and `ranx` to confirm 100% numerical parity with custom metrics.
+- Output Phase 1 Retrieval Table (3 rows) and print pass/fail verdict.
+
+===============================================================================
+5. COLAB EXECUTION & VERIFICATION COMMANDS
+===============================================================================
+
+Files created/modified in Stage 2:
+- `src/metrics.py`
+- `src/02_retrieve.py`
+- `src/verify_stage2.py`
+
+Commands to run on Colab (GPU environment):
+```python
+import os
+PROJECT = '/content/drive/MyDrive/slotA-rag-harness'
+os.environ['SLOTA_ROOT'] = PROJECT
+os.chdir(PROJECT)
+
+# Execute candidate retrieval & metric generation across 3 arms
+!python src/02_retrieve.py
+
+# Verify outputs, validate metrics with pytrec_eval/ranx in fresh process
+!python src/verify_stage2.py
+```
+
+===============================================================================
+6. CHECKS & ACCEPTANCE CRITERIA
+===============================================================================
+[ ] All 300 test queries produce 50 candidates in each of the 3 arms.
+[ ] Max-collapse properly maps 5,661 unit ordinals down to 5,183 docids without duplicate docids in candidate lists.
+[ ] RRF fusion runs on doc-level lists with k=60.
+[ ] Hand-written metrics pass canary unit tests (Recall@5 = 0.750, MRR = 0.625, nDCG@5 = 0.627).
+[ ] Hand-written metrics match pytrec_eval and ranx outputs on SciFact run outputs to within 1e-4 tolerance.
+[ ] All 4 JSON output files saved in `artifacts/runs/` and verified reloadable.

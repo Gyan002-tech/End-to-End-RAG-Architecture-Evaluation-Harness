@@ -11,17 +11,10 @@ plus the two files that make those usable and auditable:
     artifacts/index/docmap.json      FAISS row ordinal <-> docid <-> raw text
     artifacts/index/index_meta.json  every decision + timing + version
 
-Why IndexFlatIP and not an ANN index: at SciFact's ~5K docs, exact exhaustive
-search is milliseconds AND exact. An approximate index (HNSW/IVF) would drop true
-neighbours, which would show up as reduced recall — contaminating the very metric
-this project measures. We could not then separate "dense retrieval underperformed"
-from "the index lost the answer". Exactness here is not a performance choice, it
-is a measurement-validity choice.
-
 Usage:
-    python 01_index.py                       # skips if artifacts already exist
-    python 01_index.py --force               # rebuild from scratch
-    python 01_index.py --chunk-policy chunked   # override the auto decision
+    python src/01_index.py                       # skips if artifacts already exist
+    python src/01_index.py --force               # rebuild from scratch
+    python src/01_index.py --chunk-policy chunked   # override the auto decision
 """
 
 from __future__ import annotations
@@ -34,7 +27,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Ensure project root is in sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np  # noqa: E402
 
@@ -88,8 +82,6 @@ def audit_token_lengths(texts: list[str]) -> tuple[list[int], dict]:
 
     tok = AutoTokenizer.from_pretrained(EMBED_MODEL)
 
-    # The tokenizer warns loudly when a sequence exceeds model_max_length. That is
-    # exactly what we are measuring, so silence it rather than have it look like a bug.
     prev = hf_logging.get_verbosity()
     hf_logging.set_verbosity_error()
     enc = tok(texts, add_special_tokens=True, truncation=False, padding=False)
@@ -142,15 +134,6 @@ def decide_chunk_policy(requested: str, stats: dict) -> tuple[str, str]:
 
 
 def chunk_text_by_tokens(tok, text: str, max_len: int, overlap: int) -> list[str]:
-    """Fixed token-window chunker with overlap, using the embedder's own tokenizer.
-
-    Deliberately NOT repo A's chunk_text() (reference/hybrid-rag/src/ingest.py):
-    that one splits on blank-line paragraphs then sentences and counts with
-    tiktoken's cl100k_base. SciFact docs are a title plus a single unbroken
-    abstract — there are no paragraphs to split on, and cl100k token counts are
-    not what bge's BERT tokenizer will actually do. Windowing on the model's own
-    tokenizer is the only way to guarantee no chunk overflows the encoder.
-    """
     ids = tok(text, add_special_tokens=False, truncation=False)["input_ids"]
     budget = max_len - 2  # leave room for [CLS] and [SEP]
     if len(ids) <= budget:
@@ -175,11 +158,7 @@ def build_units(
     policy: str,
     chunk_overlap: int,
 ) -> tuple[list[str], list[str], dict[str, list[int]], list[str]]:
-    """Return (unit_texts, ordinal_to_docid, docid_to_ordinals, truncated_docids)."""
     if policy == "one_vector_per_doc":
-        # Over-long docs are truncated by the encoder at max_seq_length. Record
-        # exactly which ones, so Stage 2 can check whether any truncated doc is a
-        # gold doc — if none are, truncation provably cannot move any metric.
         truncated = [d for d, n in zip(doc_ids, lengths) if n > MAX_SEQ_LENGTH]
         return (
             list(texts),
@@ -192,9 +171,6 @@ def build_units(
     from transformers import logging as hf_logging
 
     tok = AutoTokenizer.from_pretrained(EMBED_MODEL)
-    # We tokenize without truncation on purpose (that is how we find the window
-    # boundaries), so silence the "sequence longer than maximum" warning it emits —
-    # otherwise correct behaviour looks like a defect in the log.
     prev_verbosity = hf_logging.get_verbosity()
     hf_logging.set_verbosity_error()
 
@@ -305,9 +281,6 @@ def main() -> int:
     n_units = len(unit_texts)
     print(f"  embedding units     : {n_units}" + ("" if policy == "chunked" else "  (== doc count)"))
 
-    # Over-limit audit — runs under BOTH policies, because the number that matters
-    # is "how much evidence would truncation have destroyed", and that question is
-    # what justifies paying the chunking complexity (or not).
     over_limit_docids = [d for d, n in zip(doc_ids, lengths) if n > MAX_SEQ_LENGTH]
     over_limit_gold = sorted(set(over_limit_docids) & gold_docids)
     gold_pairs_at_risk = sum(
@@ -414,7 +387,6 @@ def main() -> int:
     print(f"  build+write         : {t_faiss:.2f}s")
     print(f"  file                : {FAISS_PATH}  ({FAISS_PATH.stat().st_size / 2**20:.1f} MiB)")
 
-    # CHECK 2
     if index.ntotal != n_units:
         print(f"  !! ntotal {index.ntotal} != embedded units {n_units} — aborting")
         return 1
@@ -433,15 +405,12 @@ def main() -> int:
     from rank_bm25 import BM25Okapi
 
     t0 = time.perf_counter()
-    # BM25 is always DOC-LEVEL and never chunked — it has no input length limit,
-    # so it sees the full text even for docs the dense arm had to truncate. That
-    # asymmetry is real and is recorded in index_meta.json.
     tokenized = [bm25_tokenize(t) for t in texts]
     bm25 = BM25Okapi(tokenized)
     bundle = {
         "schema_version": 1,
         "bm25": bm25,
-        "doc_ids": doc_ids,  # score-array ordering: get_scores()[j] -> doc_ids[j]
+        "doc_ids": doc_ids,
         "tokenizer_note": BM25_TOKENIZER_NOTE,
         "text_field_note": TEXT_FIELD_NOTE,
         "docid_order_note": DOCID_ORDER_NOTE,
@@ -473,9 +442,6 @@ def main() -> int:
         "ordinal_to_docid": ordinal_to_docid,
         "docid_to_ordinals": docid_to_ordinals,
         "docid_to_text": {d: t for d, t in zip(doc_ids, texts)},
-        # The exact string embedded at each ordinal. Under `chunked` this is the
-        # decoded chunk, which differs from the doc text — and without it the
-        # alignment proof cannot run, which is the whole reason it is persisted.
         "ordinal_to_text": unit_texts,
     }
     with open(DOCMAP_PATH, "w") as f:
@@ -484,7 +450,6 @@ def main() -> int:
     print(f"  docids              : {len(docid_to_ordinals)}")
     print(f"  file                : {DOCMAP_PATH}  ({DOCMAP_PATH.stat().st_size / 2**20:.1f} MiB)")
 
-    # in-process alignment assertion; verify_stage1.py proves it again from disk
     for ordinal, did in enumerate(ordinal_to_docid):
         if ordinal not in docid_to_ordinals[did]:
             print(f"  !! alignment broken at ordinal {ordinal} (docid {did}) — aborting")
@@ -582,7 +547,7 @@ def main() -> int:
         print(f"  peak VRAM      : {peak_reserved:.2f} GiB reserved / {peak_alloc:.2f} GiB allocated")
     print(f"  TOTAL          : {t_total:.1f}s")
     print(f"\n  meta written   : {META_PATH}")
-    print("\n  Next: python verify_stage1.py   (fresh-process reload + round-trip + smoke)")
+    print("\n  Next: python src/verify_stage1.py   (fresh-process reload + round-trip + smoke)")
     return 0
 
 
