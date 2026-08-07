@@ -65,6 +65,12 @@ class LocalGenerator:
         ).to(device)
         self.model.eval()
 
+        # Suppress transformers sample-based flags warning during greedy decoding
+        self.model.generation_config.do_sample = False
+        self.model.generation_config.top_k = None
+        self.model.generation_config.top_p = None
+        self.model.generation_config.temperature = None
+
     def generate_answer(
         self,
         query_text: str,
@@ -85,9 +91,7 @@ class LocalGenerator:
             output_ids = self.model.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,
-                do_sample=False,  # Greedy decoding for deterministic evaluation
-                temperature=None,
-                top_p=None,
+                do_sample=False,
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
             )

@@ -8,6 +8,8 @@ Pareto configurations identified in Stage 3:
   3. RRF Hybrid -> bge-v2-gemma
   4. Dense -> bge-v2-gemma
 
+Includes tqdm progress tracking for batch generation.
+
 Outputs:
   - artifacts/runs/gen_dense_none.json
   - artifacts/runs/gen_dense_m3.json
@@ -35,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
+from tqdm import tqdm  # noqa: E402
 
 from src.common import (  # noqa: E402
     RUNS_DIR,
@@ -60,14 +63,15 @@ def run_generation_for_survivor(
     top_k_context: int = 5,
     max_new_tokens: int = 384,
 ) -> Tuple[Dict[str, dict], List[float], int]:
-    """Generate RAG answers for all 300 test queries in a survivor run."""
+    """Generate RAG answers for all 300 test queries in a survivor run with tqdm progress tracking."""
     gen_results: Dict[str, dict] = {}
     latencies: List[float] = []
     truncations_count = 0
 
     qids = sorted(runs.keys(), key=lambda q: int(q) if q.isdigit() else q)
 
-    for qid in qids:
+    pbar = tqdm(qids, desc=f"  Generating [{survivor_name}]", unit="query", leave=True)
+    for qid in pbar:
         qtext = queries[qid]
         hits = runs[qid][:top_k_context]
 
@@ -99,6 +103,9 @@ def run_generation_for_survivor(
             "hit_max_tokens": hit_max,
             "word_count": len(answer.split()),
         }
+
+        # Update tqdm status with current mean latency
+        pbar.set_postfix({"mean_lat": f"{np.mean(latencies):.0f}ms"})
 
     return gen_results, latencies, truncations_count
 
