@@ -98,7 +98,7 @@ class LocalGenerator:
             Tuple of (generated_answer_text, hit_max_tokens_flag)
         """
         prompt = format_citation_prompt(query_text, context_docs)
-        inputs = self.tokenizer(prompt, return_return_tensors="pt" if False else "pt").to(self.device)
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
 
         input_len = inputs["input_ids"].shape[1]
 
