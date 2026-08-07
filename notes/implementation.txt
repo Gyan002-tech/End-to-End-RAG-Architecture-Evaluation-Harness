@@ -1,104 +1,102 @@
-# Implementation Plan: Stage 4 — Local Answer Generation (Qwen2.5-1.5B-Instruct)
+# Implementation Plan: Stage 5 — Local LLM-as-a-Judge Faithfulness Scoring (Qwen2.5-7B-Instruct)
 
-Document Version: 3.0
-Target Stage: Stage 4 (Phase 2 Local Answer Generation for Pareto Frontier Survivors)
-Specification Source: slotA-methodology.md (§4, §6, §9 Step 5) & notes/stage3-verification.md
+Document Version: 4.0
+Target Stage: Stage 5 (Phase 2 Local LLM Faithfulness Scoring for 4 Pareto Survivors)
+Specification Source: slotA-methodology.md (§4, §5, §6, §9 Step 5) & notes/stage4-generation.md
 
 ===============================================================================
-1. STAGE 4 OBJECTIVES & SCOPE
+1. STAGE 5 OBJECTIVES & SCOPE
 ===============================================================================
 
-Stage 4 begins Phase 2 (Generation & Faithfulness Scoring) of the RAG evaluation harness.
-It runs local answer generation for the 4 surviving Pareto frontier configurations identified in Stage 3:
-  1. `Dense (bge-base) -> none` (Speed Champion: 3.19 ms, 0.7407 nDCG@10)
-  2. `Dense -> bge-v2-m3` (Lightweight Rerank Knee: 1,831.80 ms, 0.7420 nDCG@10)
-  3. `RRF Hybrid -> bge-v2-gemma` (Balanced Rerank Knee: 6,256.78 ms, 0.7796 nDCG@10)
-  4. `Dense -> bge-v2-gemma` (Quality Champion: 6,376.81 ms, 0.7844 nDCG@10)
+Stage 5 completes Phase 2 (Generation & Faithfulness Scoring) of the RAG evaluation harness.
+It runs local LLM-as-a-Judge evaluation using `Qwen/Qwen2.5-7B-Instruct` across all 1,200 generated RAG answers (300 queries x 4 Pareto survivor runs):
+  1. `Dense (bge-base) -> none` (Speed Champion)
+  2. `Dense -> bge-v2-m3` (Lightweight Rerank Knee)
+  3. `RRF Hybrid -> bge-v2-gemma` (Balanced Rerank Knee)
+  4. `Dense -> bge-v2-gemma` (Quality Champion)
 
 Key Deliverables:
-- Local Generator Integration: Adapt `src/generate.py` from Reference Repo A (`tim-ponomarev/hybrid-rag`), replacing external API calls with local `Qwen/Qwen2.5-1.5B-Instruct` via HuggingFace `transformers`.
-- Citation-Aware RAG Prompting: Format top-5 retrieved context passages with explicit `[Document {doc_id}]: {text}` tags and instruct Qwen2.5-1.5B to answer using ONLY the context with inline citations.
-- Deterministic Answer Generation: Generate answers for all 300 test queries across all 4 Pareto survivor runs using greedy decoding (`temperature=0.0`, `max_new_tokens=256`).
-- Latency & Output Persistence: Measure answer generation latency per query and save generated runs to `artifacts/runs/gen_*.json`.
-- GPU VRAM Cleanup: Unload Qwen2.5-1.5B cleanly from GPU VRAM (`del generator; torch.cuda.empty_cache(); gc.collect()`) to unblock Stage 5 (Local Qwen2.5-7B Faithfulness Judge).
+- Local LLM Judge Integration: Adapt `src/judge.py` from Reference Repo A (`tim-ponomarev/hybrid-rag`), replacing OpenAI `gpt-4o-mini` API calls with local `Qwen/Qwen2.5-7B-Instruct` (with automatic 4-bit `bitsandbytes` fallback for T4 16GB VRAM safety).
+- Faithfulness Rubric Scoring: Deconstruct generated RAG answers into atomic claims, check whether each claim is logically supported by retrieved context passages, and compute:
+  Faithfulness = Supported Claims / Total Claims Made in Answer
+- Per-Query JSON Judgment: Return structured judgment per query containing `faithfulness_score`, `total_claims`, `supported_claims`, and list of `unsupported_claims`.
+- Final Phase 2 Pareto Matrix: Assemble the final Phase 2 summary table combining nDCG@10, End-to-End Latency, and Faithfulness Score across all 4 survivor configurations.
 
 ===============================================================================
-2. GENERATOR MODEL & GPU MEMORY GUARDRAILS
+2. JUDGE MODEL & GPU MEMORY GUARDRAILS
 ===============================================================================
 
-Model: `Qwen/Qwen2.5-1.5B-Instruct`
-- Type: Causal LLM Generator (1.5 billion parameters).
-- Precision: `fp16` on CUDA with PyTorch SDPA (`attn_implementation="sdpa"`).
-- VRAM Footprint: ~3.0 GiB static weight VRAM.
-- Why 1.5B? Small, fast local instruction-tuned LLM that executes in milliseconds per query on a T4 GPU without exceeding memory limits.
+Model: `Qwen/Qwen2.5-7B-Instruct`
+- Type: Causal LLM Judge (7.0 billion parameters).
+- Size / VRAM: ~14.0 GiB (fp16 on CUDA). If VRAM exceeds bounds on T4 (14.56 GiB ceiling), automatically fall back to 4-bit `bitsandbytes` quantization (`load_in_4bit=True`).
+- Why 7B? A larger, highly capable instruction-tuned LLM required for complex factual claim verification and logical deduction without paying OpenAI API costs.
 
-VRAM Guardrails & Staged Residency:
-- Generator runs strictly AFTER Stage 3 rerankers are unloaded.
-- Generator unloads completely from VRAM BEFORE Stage 5 (`Qwen2.5-7B-Instruct` judge) loads.
-- Strictly single-model residency enforced at all times.
+VRAM Guardrails:
+- `Qwen2.5-1.5B-Instruct` generator was fully unloaded in Stage 4.
+- Single-model VRAM residency strictly maintained.
+- `Qwen2.5-7B-Instruct` unloads completely from GPU VRAM after Stage 5.
 
 ===============================================================================
 3. DATA FLOW & ARTIFACT SPECIFICATION
 ===============================================================================
 
 Input Artifacts (`artifacts/runs/` & `artifacts/index/`):
-- `artifacts/runs/retrieval_dense.json`: Dense candidate run
-- `artifacts/runs/rerank_m3_dense.json`: Dense + m3 reranked run
-- `artifacts/runs/rerank_gemma_rrf.json`: RRF + gemma reranked run
-- `artifacts/runs/rerank_gemma_dense.json`: Dense + gemma reranked run
-- `artifacts/index/docmap.json`: Document text lookup (`docid_to_text`)
-- BEIR SciFact test dataset (`queries`, `qrels`)
-
-Output Artifacts (`artifacts/runs/`):
 - `artifacts/runs/gen_dense_none.json`: Generated answers for Dense -> none
 - `artifacts/runs/gen_dense_m3.json`: Generated answers for Dense -> bge-v2-m3
-- `artifacts/runs/gen_rrf_gemma.json`: Generated answers for RRF Hybrid -> bge-v2-gemma
+- `artifacts/runs/gen_rrf_gemma.json`: Generated answers for RRF -> bge-v2-gemma
 - `artifacts/runs/gen_dense_gemma.json`: Generated answers for Dense -> bge-v2-gemma
-- `artifacts/runs/stage4_generation_summary.json`: Summary of generated runs & generation latency
+- `artifacts/index/docmap.json`: Document text lookup (`docid_to_text`)
+
+Output Artifacts (`artifacts/runs/`):
+- `artifacts/runs/judge_dense_none.json`: Faithfulness judgments for Dense -> none
+- `artifacts/runs/judge_dense_m3.json`: Faithfulness judgments for Dense -> bge-v2-m3
+- `artifacts/runs/judge_rrf_gemma.json`: Faithfulness judgments for RRF -> bge-v2-gemma
+- `artifacts/runs/judge_dense_gemma.json`: Faithfulness judgments for Dense -> bge-v2-gemma
+- `artifacts/runs/stage5_faithfulness_summary.json`: Final Phase 2 Summary Table (nDCG@10 vs Latency vs Faithfulness)
 
 ===============================================================================
 4. STEP-BY-STEP IMPLEMENTATION PLAN
 ===============================================================================
 
-Step 1: Generator Module (`src/generator.py`)
-- Implement `LocalGenerator` class wrapping `Qwen/Qwen2.5-1.5B-Instruct` via HuggingFace `AutoModelForCausalLM` and `AutoTokenizer`.
-- Include SDPA attention, `torch.float16` precision, greedy decoding (`temperature=0.0`, `do_sample=False`, `max_new_tokens=256`).
-- Define citation prompt template formatting top-K (top-5) context documents:
+Step 1: Judge Module (`src/judge.py`)
+- Implement `LocalJudge` class wrapping `Qwen/Qwen2.5-7B-Instruct` with automatic 4-bit bitsandbytes fallback and VRAM cleanup helper (`unload_model()`).
+- Implement faithfulness evaluation prompt constructing JSON output schema:
+  ```json
+  {
+    "faithfulness_score": 1.0,
+    "total_claims": 3,
+    "supported_claims": 3,
+    "unsupported_claims": []
+  }
   ```
-  Context Documents:
-  [Document 101]: Abstract text...
-  [Document 202]: Abstract text...
 
-  Query: Scientific claim query text...
-  Task: Answer the query based ONLY on the provided context documents. Cite source documents inline as [Document doc_id].
-  ```
-
-Step 2: Stage 4 Runner (`src/04_generate.py`)
-- Load SciFact dataset (`queries`), `docmap.json`, and the 4 Pareto survivor run JSONs.
-- Instantiate `LocalGenerator` on CUDA GPU.
+Step 2: Stage 5 Runner (`src/05_judge.py`)
+- Load `docmap.json` and the 4 generated answer JSONs from Stage 4.
+- Instantiate `LocalJudge` on CUDA GPU.
 - For each survivor configuration:
   - For each of the 300 test queries:
-    - Extract top-5 retrieved context documents.
-    - Format citation prompt -> run Qwen2.5-1.5B generation -> measure generation time (ms).
-    - Store generated answer string, cited docids, and generation latency.
-  - Save run JSON to `artifacts/runs/gen_{config_slug}.json`.
-- Compute generation summary metrics (mean generation latency ms/query, answer word counts) and save `stage4_generation_summary.json`.
-- Unload `LocalGenerator` from GPU VRAM (`unload_model()`).
+    - Extract generated answer and top-5 retrieved context texts.
+    - Run `LocalJudge` evaluation -> parse JSON judgment -> measure per-query judge latency.
+    - Store judgment output per query.
+  - Save judgment JSON to `artifacts/runs/judge_{config_slug}.json` immediately after each survivor completes (incremental persistence).
+- Compute overall mean faithfulness scores and save `artifacts/runs/stage5_faithfulness_summary.json`.
+- Unload `LocalJudge` from GPU VRAM.
 
-Step 3: Stage 4 Verification Script (`src/verify_stage4.py`)
-- Cold reload all 4 generated answer JSONs and `stage4_generation_summary.json`.
-- Check answer completeness (300 queries per survivor run, non-empty answer strings).
-- Check citation integrity (presence of `[Document ...]` tags in generated answers).
-- Display summary table of answer generation times and output sizes.
+Step 3: Stage 5 Verification Script (`src/verify_stage5.py`)
+- Cold reload all 4 judgment JSONs and `stage5_faithfulness_summary.json`.
+- Validate completeness (300 judgments per run, valid faithfulness scores in [0.0, 1.0]).
+- Render the **Final Phase 2 Pareto Survivor Matrix**:
+  Config | Retrieval nDCG@10 | Total Query Latency (ms) | Faithfulness Score
+- Confirm project completion.
 
 ===============================================================================
 5. COLAB EXECUTION & VERIFICATION COMMANDS
 ===============================================================================
 
-Files to create in Stage 4:
-- `src/generator.py`
-- `src/04_generate.py`
-- `src/verify_stage4.py`
+Files to create in Stage 5:
+- `src/judge.py`
+- `src/05_judge.py`
+- `src/verify_stage5.py`
 
 Colab execution block:
 ```python
@@ -107,18 +105,18 @@ PROJECT = '/content/drive/MyDrive/slotA-rag-harness'
 os.environ['SLOTA_ROOT'] = PROJECT
 os.chdir(PROJECT)
 
-# Execute Stage 4 local answer generation for 4 Pareto survivors
-!python src/04_generate.py
+# Execute Stage 5 local LLM faithfulness judging for 4 Pareto survivors
+!python src/05_judge.py
 
-# Verify generated answer artifacts in a fresh process
-!python src/verify_stage4.py
+# Verify final Phase 2 results & display summary table in a fresh process
+!python src/verify_stage5.py
 ```
 
 ===============================================================================
 6. CHECKS & ACCEPTANCE CRITERIA
 ===============================================================================
-[ ] All 4 Pareto survivor runs produce generated answers for all 300 test queries (1,200 total answers).
-[ ] Prompt formatting correctly injects top-5 retrieved context documents with explicit docids.
-[ ] Greedy decoding (`temperature=0.0`) produces deterministic, reproducible answers.
-[ ] Generation latency (ms/query) is recorded and saved per configuration.
-[ ] `Qwen2.5-1.5B-Instruct` is completely unloaded from VRAM before script termination.
+[ ] Incremental persistence: Judgment file saved immediately after each survivor run completes.
+[ ] All 4 survivor runs produce valid faithfulness judgments for all 300 test queries (1,200 total evaluations).
+[ ] `Qwen2.5-7B-Instruct` uses 4-bit quantization if fp16 exceeds T4 16GB VRAM limits.
+[ ] Structured JSON outputs include `faithfulness_score`, `total_claims`, `supported_claims`, and `unsupported_claims`.
+[ ] Final Phase 2 Pareto matrix assembled showing Quality (nDCG@10) vs Latency (ms) vs Faithfulness.
