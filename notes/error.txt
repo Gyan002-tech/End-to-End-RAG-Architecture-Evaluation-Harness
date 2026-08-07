@@ -6,26 +6,60 @@
 ==========================================================================
 [2] Load Qwen/Qwen2.5-7B-Instruct Judge onto CUDA
 ==========================================================================
-  Loading Qwen/Qwen2.5-7B-Instruct...
-tokenizer_config.json: 7.30kB [00:00, 35.2MB/s]
-vocab.json: 2.78MB [00:00, 65.2MB/s]
-merges.txt: 1.67MB [00:00, 171MB/s]
-tokenizer.json: 7.03MB [00:00, 205MB/s]
-config.json: 100% 663/663 [00:00<00:00, 6.36MB/s]
-2026-08-07 16:00:55.867101: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+  Loading Qwen/Qwen2.5-7B-Instruct (4-bit bitsandbytes: True)...
+2026-08-07 16:13:49.070032: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
 To enable the following instructions: AVX2 AVX512F FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
-model.safetensors.index.json: 27.8kB [00:00, 105MB/s]
-Downloading shards:   0% 0/4 [00:00<?, ?it/s]
-model-00001-of-00004.safetensors:   0% 0.00/3.95G [00:00<?, ?B/s]
-model-00001-of-00004.safetensors: 100% 3.95G/3.95G [02:41<00:00, 24.4MB/s]
-Downloading shards:  25% 1/4 [02:41<08:04, 161.62s/it]
-model-00002-of-00004.safetensors:   0% 0.00/3.86G [00:00<?, ?B/s]
-model-00002-of-00004.safetensors: 100% 3.86G/3.86G [00:40<00:00, 96.1MB/s]
-Downloading shards:  50% 2/4 [03:22<03:00, 90.49s/it] 
-model-00003-of-00004.safetensors:   0% 0.00/3.86G [00:00<?, ?B/s]
-model-00003-of-00004.safetensors: 100% 3.86G/3.86G [00:54<00:00, 71.0MB/s]
-Downloading shards:  75% 3/4 [04:17<01:14, 74.15s/it]
-model-00004-of-00004.safetensors:   0% 0.00/3.56G [00:00<?, ?B/s]
-model-00004-of-00004.safetensors: 100% 3.56G/3.56G [00:57<00:00, 62.0MB/s]
-Downloading shards: 100% 4/4 [05:14<00:00, 78.69s/it]
-Loading checkpoint shards:  50% 2/4 [00:33<00:33, 16.71s/it]
+WARNING:bitsandbytes.cextension:Could not find the bitsandbytes CUDA binary at PosixPath('/usr/local/lib/python3.12/dist-packages/bitsandbytes/libbitsandbytes_cuda128.so')
+WARNING:bitsandbytes.cextension:The installed version of bitsandbytes was compiled without GPU support. 8-bit optimizers, 8-bit multiplication, and GPU quantization are unavailable.
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/dist-packages/transformers/utils/import_utils.py", line 1778, in _get_module
+    return importlib.import_module("." + module_name, self.__name__)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 999, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "/usr/local/lib/python3.12/dist-packages/transformers/integrations/bitsandbytes.py", line 21, in <module>
+    import bitsandbytes as bnb
+  File "/usr/local/lib/python3.12/dist-packages/bitsandbytes/__init__.py", line 15, in <module>
+    from .nn import modules
+  File "/usr/local/lib/python3.12/dist-packages/bitsandbytes/nn/__init__.py", line 21, in <module>
+    from .triton_based_modules import (
+  File "/usr/local/lib/python3.12/dist-packages/bitsandbytes/nn/triton_based_modules.py", line 7, in <module>
+    from bitsandbytes.triton.int8_matmul_mixed_dequantize import (
+  File "/usr/local/lib/python3.12/dist-packages/bitsandbytes/triton/int8_matmul_mixed_dequantize.py", line 12, in <module>
+    from triton.ops.matmul_perf_model import early_config_prune, estimate_matmul_time
+ModuleNotFoundError: No module named 'triton.ops'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/content/drive/.shortcut-targets-by-id/15n8uUd-26hJw0kX1nmdzBxpmT5EvHyTh/slotA-rag-harness/src/05_judge.py", line 283, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/content/drive/.shortcut-targets-by-id/15n8uUd-26hJw0kX1nmdzBxpmT5EvHyTh/slotA-rag-harness/src/05_judge.py", line 221, in main
+    judge_model = LocalJudge(device=device, load_in_4bit=use_4bit)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/content/drive/.shortcut-targets-by-id/15n8uUd-26hJw0kX1nmdzBxpmT5EvHyTh/slotA-rag-harness/src/judge.py", line 94, in __init__
+    self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/transformers/models/auto/auto_factory.py", line 564, in from_pretrained
+    return model_class.from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/transformers/modeling_utils.py", line 3657, in from_pretrained
+    hf_quantizer.validate_environment(
+  File "/usr/local/lib/python3.12/dist-packages/transformers/quantizers/quantizer_bnb_4bit.py", line 78, in validate_environment
+    from ..integrations import validate_bnb_backend_availability
+  File "<frozen importlib._bootstrap>", line 1412, in _handle_fromlist
+  File "/usr/local/lib/python3.12/dist-packages/transformers/utils/import_utils.py", line 1766, in __getattr__
+    module = self._get_module(self._class_to_module[name])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/dist-packages/transformers/utils/import_utils.py", line 1780, in _get_module
+    raise RuntimeError(
+RuntimeError: Failed to import transformers.integrations.bitsandbytes because of the following error (look up to see its traceback):
+No module named 'triton.ops'

@@ -1,7 +1,7 @@
-"""Local LLM Faithfulness Judge module using Qwen/Qwen2.5-7B-Instruct.
+"""Local LLM Faithfulness Judge module using Qwen/Qwen2.5-7B-Instruct (with Qwen2.5-3B-Instruct fp16 fallback).
 
 Provides structured JSON faithfulness scoring rubric and CUDA VRAM cleanup helpers.
-Enforces 4-bit bitsandbytes quantization on CUDA for 7B model VRAM safety on 16GB GPUs.
+Supports 4-bit bitsandbytes quantization and automatic fp16 Qwen2.5-3B fallback for GPU safety.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def format_judge_prompt(query_text: str, answer_text: str, context_docs: List[Tu
 
 
 class LocalJudge:
-    """Wrapper for Qwen/Qwen2.5-7B-Instruct local LLM judge."""
+    """Wrapper for local LLM faithfulness judge (Qwen2.5-7B with 3B fp16 fallback)."""
 
     def __init__(
         self,
@@ -68,49 +68,56 @@ class LocalJudge:
 
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        model_loaded = False
+        self.load_in_4bit = False
 
-        model_kwargs = {"attn_implementation": "sdpa"}
-
+        # Attempt 1: Try 4-bit bitsandbytes loading if requested on CUDA
         if device == "cuda" and load_in_4bit:
-            from transformers import BitsAndBytesConfig
-
-            model_kwargs["quantization_config"] = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_quant_type="nf4",
-            )
-            model_kwargs["device_map"] = "auto"
-            self.load_in_4bit = True
-        elif device == "cuda":
-            model_kwargs["torch_dtype"] = torch.float16
-            self.load_in_4bit = False
-        else:
-            self.load_in_4bit = False
-
-        try:
-            self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
-            if not self.load_in_4bit and device == "cuda":
-                self.model = self.model.to(device)
-            self.model.eval()
-        except Exception as exc:
-            if not self.load_in_4bit and device == "cuda":
-                print(f"  fp16 load failed ({exc}) — falling back to 4-bit bitsandbytes quantization...")
+            try:
                 from transformers import BitsAndBytesConfig
 
-                model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_compute_dtype=torch.float16,
                     bnb_4bit_quant_type="nf4",
                 )
-                model_kwargs["device_map"] = "auto"
-                self.load_in_4bit = True
-                self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                if self.tokenizer.pad_token is None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
+
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    quantization_config=bnb_config,
+                    device_map="auto",
+                    attn_implementation="sdpa",
+                )
                 self.model.eval()
-            else:
-                raise
+                self.load_in_4bit = True
+                model_loaded = True
+            except Exception as exc:
+                print(f"  4-bit bitsandbytes load failed ({exc}) — falling back to Qwen2.5-3B-Instruct in fp16...")
+                self.load_in_4bit = False
+                model_loaded = False
+
+        # Attempt 2: Fallback to Qwen/Qwen2.5-3B-Instruct in fp16 (6.0 GiB VRAM, fits 16GB T4 cleanly)
+        if not model_loaded:
+            fallback_name = "Qwen/Qwen2.5-3B-Instruct" if "7B" in model_name else model_name
+            self.model_name = fallback_name
+            print(f"  Loading judge model: {fallback_name} (fp16 on CUDA)...")
+
+            self.tokenizer = AutoTokenizer.from_pretrained(fallback_name)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+
+            model_kwargs = {"attn_implementation": "sdpa"}
+            if device == "cuda":
+                model_kwargs["torch_dtype"] = torch.float16
+
+            self.model = AutoModelForCausalLM.from_pretrained(fallback_name, **model_kwargs)
+            if device == "cuda":
+                self.model = self.model.to(device)
+            self.model.eval()
+            self.load_in_4bit = False
 
         # Suppress transformers sample-based flags warning during greedy decoding
         self.model.generation_config.do_sample = False
