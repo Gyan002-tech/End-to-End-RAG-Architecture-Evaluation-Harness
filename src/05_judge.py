@@ -175,7 +175,10 @@ def main() -> int:
         with open(stage3_metrics_path) as f:
             s3 = json.load(f)
         for row in s3.get("grid_cells", []):
-            stage3_table_map[row["config"]] = row
+            cfg = row["config"]
+            stage3_table_map[cfg] = row
+            if "Dense (bge-base) -> none" in cfg or "Dense -> none" in cfg:
+                stage3_table_map["Dense -> none"] = row
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     judge_model = None
@@ -255,7 +258,7 @@ def main() -> int:
         "schema_version": 1,
         "stage": "05_judge",
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "judge_model": judge_model.model_name if judge_model else "Qwen/Qwen2.5-7B-Instruct",
+        "judge_model": judge_model.model_name if judge_model else "Qwen/Qwen2.5-3B-Instruct",
         "phase2_pareto_survivors": summary_rows,
     }
     with open(summary_path, "w") as f:

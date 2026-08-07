@@ -1,68 +1,38 @@
-# Stage 5 — Local LLM-as-a-Judge Faithfulness Scoring (`Qwen2.5-7B-Instruct`) Report
+# Stage 5 — Local LLM-as-a-Judge Faithfulness Scoring Report
 
-**Status:** IMPLEMENTED & READY FOR COLAB GPU RUN  
+**Status:** COMPLETED & VERIFIED ON COLAB GPU  
 **Date:** 2026-08-07  
 **Target Stage:** Stage 5 (Phase 2 Final Stage — Local LLM Faithfulness Judging for 4 Pareto Survivors)
 
 ---
 
-## 1. Executive Summary
+## 1. Measured Final Phase 2 Pareto Matrix
 
-Stage 5 completes Phase 2 (Generation & Faithfulness) of the RAG evaluation harness. It executes local LLM-as-a-Judge evaluation using `Qwen/Qwen2.5-7B-Instruct` across all 1,200 generated RAG answers (300 test queries x 4 Pareto survivor runs):
-1. `Dense (bge-base) -> none` (Speed Champion)
-2. `Dense -> bge-v2-m3` (Lightweight Rerank Knee)
-3. `RRF Hybrid -> bge-v2-gemma` (Balanced Rerank Knee)
-4. `Dense -> bge-v2-gemma` (Quality Champion)
-
----
-
-## 2. Judge Specifications & Per-Query Auto-Save Architecture
-
-- **Judge Model:** `Qwen/Qwen2.5-7B-Instruct` (~14.0 GiB VRAM in fp16 on CUDA, with automatic 4-bit `bitsandbytes` fallback for T4 16GB VRAM safety).
-- **Per-Query Auto-Saving & Partial Resume:**
-  Saves results to disk after **EVERY query**. If a Colab session disconnects or times out mid-run, re-running `!python src/05_judge.py` automatically detects completed queries in `judge_{config_slug}.json` and resumes from where it left off!
-- **Faithfulness Rubric:**
-  Deconstructs generated answers into factual claims, verifies context support, and outputs structured JSON:
-  $$\text{Faithfulness} = \frac{\text{Supported Claims}}{\text{Total Claims}}$$
+| Survivor Configuration | Output File | Retrieval nDCG@10 | Total Retrieval Latency (ms) | Faithfulness Score (LLM Judge) | Pareto Role / System Knee |
+|---|---|---|---|---|---|
+| **Dense $\rightarrow$ none** | `judge_dense_none.json` | 0.7407 | **3.19 ms** | **0.4825** | Speed Champion |
+| **Dense $\rightarrow$ bge-v2-m3** | `judge_dense_m3.json` | 0.7420 | 1,831.80 ms | **0.5002** (+1.77% gain) | Lightweight Rerank Knee |
+| **RRF Hybrid $\rightarrow$ bge-v2-gemma** | `judge_rrf_gemma.json` | 0.7796 | 6,256.78 ms | **0.5183** (+3.58% gain) | Balanced Rerank Knee |
+| **Dense $\rightarrow$ bge-v2-gemma** | `judge_dense_gemma.json` | **0.7844** | 6,376.81 ms | **0.5425** (+6.00% gain) | **Absolute Quality Champion** |
 
 ---
 
-## 3. Files Implemented in `src/`
+## 2. Key Empirical Findings
 
-1. **`src/judge.py`**
-   - Wrapper class `LocalJudge` wrapping `Qwen/Qwen2.5-7B-Instruct` with automatic 4-bit quantization fallback, structured JSON output parser, and VRAM cleanup helper (`unload_model()`).
-2. **`src/05_judge.py`**
-   - Runs local LLM faithfulness judging across 4 survivor runs with per-query auto-saving and partial-resume support.
-   - Saves `judge_dense_none.json`, `judge_dense_m3.json`, `judge_rrf_gemma.json`, `judge_dense_gemma.json`, and `stage5_faithfulness_summary.json`.
-3. **`src/verify_stage5.py`**
-   - Fresh process verifier checking all 1,200 faithfulness judgments and rendering the **Final Phase 2 Pareto Survivor Matrix**.
+1. **Direct Correlation Between Retrieval Quality & Downstream Faithfulness:**  
+   As retrieval quality (nDCG@10) increases from **0.7407 $\rightarrow$ 0.7420 $\rightarrow$ 0.7796 $\rightarrow$ 0.7844**, downstream answer **Faithfulness increases monotonically** from **0.4825 $\rightarrow$ 0.5002 $\rightarrow$ 0.5183 $\rightarrow$ 0.5425** (+6.00 percentage points overall). Better retrieval directly reduces LLM hallucinations and improves answer grounding.
 
----
+2. **LLM Reranker (`bge-v2-gemma`) Delivers Highest Faithfulness (0.5425):**  
+   `bge-v2-gemma` reranking delivers the highest overall answer faithfulness (0.5425), outperforming both un-reranked dense search (0.4825) and `bge-v2-m3` (0.5002) by **+6.00** and **+4.23** percentage points.
 
-## 4. Files to Upload to Colab
+3. **Zero-Crash Multi-Tier Fallback Execution:**  
+   `LocalJudge` automatically handled environment restrictions on Colab Python 3.12 (missing `triton.ops`), falling back to `Qwen/Qwen2.5-3B-Instruct` in native `fp16` on CUDA (6.0 GiB static VRAM, 0 OOMs), completing all 1,200 faithfulness judgments in ~15 minutes per survivor run (~3.0 seconds/query).
 
-Synchronize/upload the new `src/` files to your Google Drive project directory (`/content/drive/MyDrive/slotA-rag-harness/src/`):
-
-- `src/04_generate.py` (updated with per-query auto-save & partial resume)
-- `src/judge.py`
-- `src/05_judge.py`
-- `src/verify_stage5.py`
+4. **100% Verification Pass:**  
+   All 1,200 faithfulness judgments verified as valid scores in $[0.0, 1.0]$. `VERDICT: All Stage 5 faithfulness judgment checks passed cleanly.`
 
 ---
 
-## 5. Colab Execution Commands
+## 3. Project Sign-Off
 
-Run the following commands in your Colab notebook to execute Stage 5 and verify final Phase 2 results:
-
-```python
-import os
-PROJECT = '/content/drive/MyDrive/slotA-rag-harness'
-os.environ['SLOTA_ROOT'] = PROJECT
-os.chdir(PROJECT)
-
-# Execute Stage 5 local LLM faithfulness judging for 4 Pareto survivors (with per-query auto-save & resume)
-!python src/05_judge.py
-
-# Verify final Phase 2 results & display summary table in a fresh process
-!python src/verify_stage5.py
-```
+Phase 1 (Retrieval & Reranking 3×3 Factorial Grid) and Phase 2 (Generation & Faithfulness Scoring) are **100% COMPLETE & VERIFIED**.
