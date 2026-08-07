@@ -8,7 +8,9 @@ Pareto configurations identified in Stage 3:
   3. RRF Hybrid -> bge-v2-gemma
   4. Dense -> bge-v2-gemma
 
-Includes tqdm progress tracking for batch generation.
+PER-QUERY AUTO-SAVING & RESUME:
+  Saves results to disk after EVERY query. If interrupted mid-run, re-running automatically
+  detects completed queries and resumes from where it left off. Pass `--force` to restart.
 
 Outputs:
   - artifacts/runs/gen_dense_none.json
@@ -60,18 +62,41 @@ def run_generation_for_survivor(
     runs: Dict[str, List[dict]],
     queries: Dict[str, str],
     doc_texts: Dict[str, str],
+    out_path: Path,
     top_k_context: int = 5,
     max_new_tokens: int = 384,
+    force: bool = False,
 ) -> Tuple[Dict[str, dict], List[float], int]:
-    """Generate RAG answers for all 300 test queries in a survivor run with tqdm progress tracking."""
+    """Generate RAG answers with per-query auto-saving and partial-resume capability."""
     gen_results: Dict[str, dict] = {}
     latencies: List[float] = []
     truncations_count = 0
+
+    # Load existing partial run if out_path exists and not force
+    if out_path.exists() and not force:
+        try:
+            with open(out_path) as f:
+                existing_data = json.load(f)
+            gen_results = existing_data.get("generations", {})
+            for entry in gen_results.values():
+                if "latency_ms" in entry:
+                    latencies.append(entry["latency_ms"])
+                if entry.get("hit_max_tokens"):
+                    truncations_count += 1
+            if gen_results:
+                print(f"  [PARTIAL RESUME] Loaded {len(gen_results)} completed queries from {out_path.name}")
+        except Exception:
+            gen_results = {}
+            latencies = []
+            truncations_count = 0
 
     qids = sorted(runs.keys(), key=lambda q: int(q) if q.isdigit() else q)
 
     pbar = tqdm(qids, desc=f"  Generating [{survivor_name}]", unit="query", leave=True)
     for qid in pbar:
+        if qid in gen_results and not force:
+            continue  # Skip already completed query
+
         qtext = queries[qid]
         hits = runs[qid][:top_k_context]
 
@@ -103,6 +128,19 @@ def run_generation_for_survivor(
             "hit_max_tokens": hit_max,
             "word_count": len(answer.split()),
         }
+
+        # Per-query incremental auto-save to disk
+        out_data = {
+            "config": survivor_name,
+            "model": "Qwen/Qwen2.5-1.5B-Instruct",
+            "top_k_context": top_k_context,
+            "max_new_tokens": max_new_tokens,
+            "mean_gen_latency_ms": float(np.mean(latencies)) if latencies else 0.0,
+            "truncations_count": truncations_count,
+            "generations": gen_results,
+        }
+        with open(out_path, "w") as f:
+            json.dump(out_data, f, indent=2)
 
         # Update tqdm status with current mean latency
         pbar.set_postfix({"mean_lat": f"{np.mean(latencies):.0f}ms"})
@@ -142,32 +180,35 @@ def main() -> int:
     runs_to_process = []
     summary_rows = []
 
-    # Check for existing cached output JSONs
+    # Check for fully completed output JSONs
     for name, in_p, out_p in survivors_config:
         if out_p.exists() and not args.force:
             with open(out_p) as f:
                 cached = json.load(f)
-            mean_lat = cached.get("mean_gen_latency_ms", 0.0)
-            truncs = cached.get("truncations_count", 0)
-            print(f"  [SKIPPED - CACHED] {out_p.name:<24} (gen: {mean_lat:.2f} ms/query, truncs: {truncs})")
-            summary_rows.append({
-                "config": name,
-                "output_file": out_p.name,
-                "mean_gen_latency_ms": round(mean_lat, 2),
-                "truncations_count": truncs,
-                "total_queries": len(cached["generations"]),
-            })
-        else:
-            with open(in_p) as f:
-                in_data = json.load(f)
-            runs_to_process.append((name, in_data["runs"], out_p))
+            gens = cached.get("generations", {})
+            if len(gens) == len(queries):
+                mean_lat = cached.get("mean_gen_latency_ms", 0.0)
+                truncs = cached.get("truncations_count", 0)
+                print(f"  [SKIPPED - FULLY COMPLETED] {out_p.name:<24} (gen: {mean_lat:.2f} ms/query, truncs: {truncs})")
+                summary_rows.append({
+                    "config": name,
+                    "output_file": out_p.name,
+                    "mean_gen_latency_ms": round(mean_lat, 2),
+                    "truncations_count": truncs,
+                    "total_queries": len(gens),
+                })
+                continue
+
+        with open(in_p) as f:
+            in_data = json.load(f)
+        runs_to_process.append((name, in_data["runs"], out_p))
 
     if runs_to_process:
         hdr("[2] Load Qwen/Qwen2.5-1.5B-Instruct Generator onto CUDA")
         print("  Loading Qwen/Qwen2.5-1.5B-Instruct...")
         generator = LocalGenerator(device=device)
 
-        hdr("[3] Execute Local Answer Generation across Survivor Runs")
+        hdr("[3] Execute Local Answer Generation across Survivor Runs (Per-Query Auto-Save)")
         for name, runs, out_p in runs_to_process:
             print(f"\n  Generating answers for: {name}...")
             t0 = time.perf_counter()
@@ -177,25 +218,13 @@ def main() -> int:
                 runs=runs,
                 queries=queries,
                 doc_texts=doc_texts,
+                out_path=out_p,
                 top_k_context=args.top_k_context,
                 max_new_tokens=args.max_new_tokens,
+                force=args.force,
             )
             total_time = time.perf_counter() - t0
-            mean_gen_lat = float(np.mean(latencies))
-
-            out_data = {
-                "config": name,
-                "model": "Qwen/Qwen2.5-1.5B-Instruct",
-                "top_k_context": args.top_k_context,
-                "max_new_tokens": args.max_new_tokens,
-                "mean_gen_latency_ms": mean_gen_lat,
-                "truncations_count": truncs,
-                "generations": gen_results,
-            }
-            with open(out_p, "w") as f:
-                json.dump(out_data, f, indent=2)
-
-            print(f"    Wrote: {out_p.name:<24} (gen latency: {mean_gen_lat:.2f} ms/query, truncations: {truncs})")
+            mean_gen_lat = float(np.mean(latencies)) if latencies else 0.0
 
             summary_rows.append({
                 "config": name,
