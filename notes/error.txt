@@ -1,115 +1,31 @@
 
 ==========================================================================
-[1] Load Stage 2 Candidate Runs & SciFact Document Corpus
+[1] Load SciFact Document Corpus & Stage 3 Rerank Metrics
 ==========================================================================
-100% 5183/5183 [00:00<00:00, 57080.27it/s]
 
 ==========================================================================
-[2] Stage 3A: Load bge-reranker-v2-m3 & Rerank Candidates
+[2] Load Qwen/Qwen2.5-7B-Instruct Judge onto CUDA
 ==========================================================================
-  [SKIPPED - CACHED] rerank_m3_bm25.json (nDCG@10: 0.6693, rerank: 1781.12 ms/query)
-  [SKIPPED - CACHED] rerank_m3_dense.json (nDCG@10: 0.7420, rerank: 1828.61 ms/query)
-  [SKIPPED - CACHED] rerank_m3_rrf.json (nDCG@10: 0.7347, rerank: 1816.43 ms/query)
-
-==========================================================================
-[3] Stage 3B: Load bge-reranker-v2-gemma & Rerank Candidates
-==========================================================================
-  Loading BAAI/bge-reranker-v2-gemma onto CUDA...
-2026-08-06 13:45:06.173573: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+  Loading Qwen/Qwen2.5-7B-Instruct...
+tokenizer_config.json: 7.30kB [00:00, 35.2MB/s]
+vocab.json: 2.78MB [00:00, 65.2MB/s]
+merges.txt: 1.67MB [00:00, 171MB/s]
+tokenizer.json: 7.03MB [00:00, 205MB/s]
+config.json: 100% 663/663 [00:00<00:00, 6.36MB/s]
+2026-08-07 16:00:55.867101: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
 To enable the following instructions: AVX2 AVX512F FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
-tokenizer_config.json: 1.11kB [00:00, 5.79MB/s]
-tokenizer.model: 100% 4.24M/4.24M [00:00<00:00, 9.18MB/s]
-tokenizer.json: 100% 17.5M/17.5M [00:03<00:00, 5.67MB/s]
-special_tokens_map.json: 100% 555/555 [00:00<00:00, 5.75MB/s]
-config.json: 100% 659/659 [00:00<00:00, 4.57MB/s]
-model.safetensors.index.json: 13.5kB [00:00, 64.4MB/s]
-Downloading shards:   0% 0/3 [00:00<?, ?it/s]
-model-00001-of-00003.safetensors:   0% 0.00/4.91G [00:00<?, ?B/s]
-model-00001-of-00003.safetensors:   0% 10.5M/4.91G [00:01<14:09, 5.77MB/s]
-model-00001-of-00003.safetensors:   0% 21.0M/4.91G [00:02<07:41, 10.6MB/s]
-model-00001-of-00003.safetensors:   1% 31.5M/4.91G [00:02<05:39, 14.4MB/s]
-model-00001-of-00003.safetensors:   1% 41.9M/4.91G [00:02<03:59, 20.4MB/s]
-[08:28<00:02, 12.3MB/s]
-model-00001-of-00003.safetensors: 100% 4.90G/4.91G [08:29<00:01, 13.0MB/s]
-model-00001-of-00003.safetensors: 100% 4.91G/4.91G [08:31<00:00, 8.21MB/s]
-model-00001-of-00003.safetensors: 100% 4.91G/4.91G [08:32<00:00, 9.59MB/s]
-Downloading shards:  33% 1/3 [08:32<17:05, 512.78s/it]
-model-00002-of-00003.safetensors:   0% 0.00/4.98G [00:00<?, ?B/s]
-model-00002-of-00003.safetensors:   0% 10.5M/4.98G [00:01<08:04, 10.2MB/s]
-model-00002-of-00003.safetensors:   1% 31.5M/4.98G [00:01<02:31, 32.7MB/s]
-[00:51<00:00, 115MB/s]
-model-00002-of-00003.safetensors: 100% 4.96G/4.98G [00:51<00:00, 120MB/s]
-model-00002-of-00003.safetensors: 100% 4.98G/4.98G [00:51<00:00, 96.2MB/s]
-Downloading shards:  67% 2/3 [09:25<04:01, 241.88s/it]
-model-00003-of-00003.safetensors:   0% 0.00/134M [00:00<?, ?B/s]
-model-00003-of-00003.safetensors:   8% 10.5M/134M [00:02<00:25, 4.81MB/s]
-model-00003-of-00003.safetensors:  16% 21.0M/134M [00:04<00:24, 4.68MB/s]
-model-00003-of-00003.safetensors:  23% 31.5M/134M [00:07<00:26, 3.92MB/s]
-model-00003-of-00003.safetensors:  31% 41.9M/134M [00:09<00:21, 4.31MB/s]
-model-00003-of-00003.safetensors:  39% 52.4M/134M [00:10<00:15, 5.32MB/s]
-model-00003-of-00003.safetensors:  47% 62.9M/134M [00:11<00:09, 7.27MB/s]
-model-00003-of-00003.safetensors:  55% 73.4M/134M [00:11<00:06, 9.15MB/s]
-model-00003-of-00003.safetensors:  70% 94.4M/134M [00:12<00:02, 16.4MB/s]
-model-00003-of-00003.safetensors:  78% 105M/134M [00:12<00:01, 20.4MB/s] 
-model-00003-of-00003.safetensors:  86% 115M/134M [00:12<00:00, 25.5MB/s]
-model-00003-of-00003.safetensors:  94% 126M/134M [00:12<00:00, 30.2MB/s]
-model-00003-of-00003.safetensors: 100% 134M/134M [00:12<00:00, 10.5MB/s]
-Downloading shards: 100% 3/3 [09:38<00:00, 192.83s/it]
-`config.hidden_act` is ignored, you should use `config.hidden_activation` instead.
-Gemma's activation function will be set to `gelu_pytorch_tanh`. Please, use
-`config.hidden_activation` if you want to override this behaviour.
-See https://github.com/huggingface/transformers/pull/29402 for more details.
-Loading checkpoint shards: 100% 3/3 [00:01<00:00,  1.75it/s]
-generation_config.json: 100% 132/132 [00:00<00:00, 1.21MB/s]
-
-  Reranking BM25 candidates with bge-v2-gemma...
-pre tokenize: 100% 4/4 [00:00<00:00, 98.70it/s]
-You're using a GemmaTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-100% 4/4 [00:06<00:00,  1.71s/it]
-pre tokenize: 100% 4/4 [00:00<00:00, 104.93it/s]
-100% 4/4 [00:05<00:00,  1.49s/it]
-pre tokenize: 100% 4/4 [00:00<00:00, 109.19it/s]
-100% 4/4 [00:07<00:00,  1.88s/it]
-pre tokenize: 100% 4/4 [00:00<00:00, 84.27it/s]
- 25% 1/4 [00:06<00:19,  6.48s/it]
-Traceback (most recent call last):
-  File "/content/drive/MyDrive/slotA-rag-harness/src/03_rerank.py", line 377, in <module>
-    raise SystemExit(main())
-                     ^^^^^^
-  File "/content/drive/MyDrive/slotA-rag-harness/src/03_rerank.py", line 303, in main
-    reranked_runs, reranked_doc_lists, rerank_lats = rerank_candidate_set(
-                                                     ^^^^^^^^^^^^^^^^^^^^^
-  File "/content/drive/MyDrive/slotA-rag-harness/src/03_rerank.py", line 89, in rerank_candidate_set
-    scores = reranker_obj.compute_scores(pairs, batch_size=batch_size)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/content/drive/MyDrive/slotA-rag-harness/src/rerankers.py", line 146, in compute_scores
-    raw_scores = self.reranker.compute_score(pair_list, batch_size=batch_size, normalize=True)
-                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/FlagEmbedding/abc/inference/AbsReranker.py", line 218, in compute_score
-    return self.compute_score_single_gpu(
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/utils/_contextlib.py", line 124, in decorate_context
-    return func(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/FlagEmbedding/inference/reranker/decoder_only/base.py", line 492, in compute_score_single_gpu
-    outputs = self.model(**batch_inputs, output_hidden_states=True)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1790, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/transformers/models/gemma/modeling_gemma.py", line 1087, in forward
-    logits = self.lm_head(hidden_states[:, -num_logits_to_keep:, :])
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1779, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/module.py", line 1790, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/local/lib/python3.12/dist-packages/torch/nn/modules/linear.py", line 134, in forward
-    return F.linear(input, self.weight, self.bias)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 3.85 GiB. GPU 0 has a total capacity of 14.56 GiB of which 3.71 GiB is free. Including non-PyTorch memory, this process has 10.85 GiB memory in use. Of the allocated memory 10.55 GiB is allocated by PyTorch, and 179.29 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+model.safetensors.index.json: 27.8kB [00:00, 105MB/s]
+Downloading shards:   0% 0/4 [00:00<?, ?it/s]
+model-00001-of-00004.safetensors:   0% 0.00/3.95G [00:00<?, ?B/s]
+model-00001-of-00004.safetensors: 100% 3.95G/3.95G [02:41<00:00, 24.4MB/s]
+Downloading shards:  25% 1/4 [02:41<08:04, 161.62s/it]
+model-00002-of-00004.safetensors:   0% 0.00/3.86G [00:00<?, ?B/s]
+model-00002-of-00004.safetensors: 100% 3.86G/3.86G [00:40<00:00, 96.1MB/s]
+Downloading shards:  50% 2/4 [03:22<03:00, 90.49s/it] 
+model-00003-of-00004.safetensors:   0% 0.00/3.86G [00:00<?, ?B/s]
+model-00003-of-00004.safetensors: 100% 3.86G/3.86G [00:54<00:00, 71.0MB/s]
+Downloading shards:  75% 3/4 [04:17<01:14, 74.15s/it]
+model-00004-of-00004.safetensors:   0% 0.00/3.56G [00:00<?, ?B/s]
+model-00004-of-00004.safetensors: 100% 3.56G/3.56G [00:57<00:00, 62.0MB/s]
+Downloading shards: 100% 4/4 [05:14<00:00, 78.69s/it]
+Loading checkpoint shards:  50% 2/4 [00:33<00:33, 16.71s/it]

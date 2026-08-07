@@ -1,7 +1,7 @@
 """Local LLM Faithfulness Judge module using Qwen/Qwen2.5-7B-Instruct.
 
 Provides structured JSON faithfulness scoring rubric and CUDA VRAM cleanup helpers.
-Supports 4-bit bitsandbytes quantization fallback for GPU VRAM safety.
+Enforces 4-bit bitsandbytes quantization on CUDA for 7B model VRAM safety on 16GB GPUs.
 """
 
 from __future__ import annotations
@@ -59,13 +59,12 @@ class LocalJudge:
         self,
         model_name: str = "Qwen/Qwen2.5-7B-Instruct",
         device: str | None = None,
-        load_in_4bit: bool = False,
+        load_in_4bit: bool = True,
     ):
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
         self.model_name = model_name
-        self.load_in_4bit = load_in_4bit
 
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -74,26 +73,39 @@ class LocalJudge:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         model_kwargs = {"attn_implementation": "sdpa"}
-        if load_in_4bit:
+
+        if device == "cuda" and load_in_4bit:
             from transformers import BitsAndBytesConfig
+
             model_kwargs["quantization_config"] = BitsAndBytesConfig(
-                load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_quant_type="nf4",
             )
+            model_kwargs["device_map"] = "auto"
+            self.load_in_4bit = True
         elif device == "cuda":
             model_kwargs["torch_dtype"] = torch.float16
+            self.load_in_4bit = False
+        else:
+            self.load_in_4bit = False
 
         try:
             self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
-            if not load_in_4bit and device == "cuda":
+            if not self.load_in_4bit and device == "cuda":
                 self.model = self.model.to(device)
             self.model.eval()
         except Exception as exc:
-            if not load_in_4bit and device == "cuda":
+            if not self.load_in_4bit and device == "cuda":
                 print(f"  fp16 load failed ({exc}) — falling back to 4-bit bitsandbytes quantization...")
                 from transformers import BitsAndBytesConfig
+
                 model_kwargs["quantization_config"] = BitsAndBytesConfig(
-                    load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_quant_type="nf4",
                 )
+                model_kwargs["device_map"] = "auto"
                 self.load_in_4bit = True
                 self.model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
                 self.model.eval()

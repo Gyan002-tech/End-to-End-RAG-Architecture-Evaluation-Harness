@@ -8,6 +8,8 @@ Pareto configurations identified in Stage 3:
   3. RRF Hybrid -> bge-v2-gemma
   4. Dense -> bge-v2-gemma
 
+Defaults to 4-bit bitsandbytes quantization on CUDA for 16GB VRAM GPU safety.
+
 PER-QUERY AUTO-SAVING & RESUME:
   Saves results to disk after EVERY query. If interrupted mid-run, re-running automatically
   detects completed queries and resumes from where it left off. Pass `--force` to restart.
@@ -21,7 +23,7 @@ Outputs:
 
 Usage:
     python src/05_judge.py
-    python src/05_judge.py --judge-4bit
+    python src/05_judge.py --fp16
     python src/05_judge.py --force
 """
 
@@ -148,7 +150,7 @@ def run_judgement_for_survivor(
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--judge-4bit", action="store_true", help="force 4-bit quantization for judge model")
+    ap.add_argument("--fp16", action="store_true", help="force fp16 precision instead of 4-bit quantization")
     ap.add_argument("--device", default=None)
     ap.add_argument("--force", action="store_true", help="force re-running judging")
     args = ap.parse_args()
@@ -214,8 +216,9 @@ def main() -> int:
 
     if runs_to_process:
         hdr("[2] Load Qwen/Qwen2.5-7B-Instruct Judge onto CUDA")
-        print("  Loading Qwen/Qwen2.5-7B-Instruct...")
-        judge_model = LocalJudge(device=device, load_in_4bit=args.judge_4bit)
+        use_4bit = not args.fp16
+        print(f"  Loading Qwen/Qwen2.5-7B-Instruct (4-bit bitsandbytes: {use_4bit})...")
+        judge_model = LocalJudge(device=device, load_in_4bit=use_4bit)
 
         hdr("[3] Execute LLM Faithfulness Judging across Survivor Runs (Per-Query Auto-Save)")
         for name, gen_data, out_p in runs_to_process:
