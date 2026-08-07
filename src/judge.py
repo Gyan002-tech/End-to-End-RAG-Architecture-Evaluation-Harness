@@ -23,29 +23,35 @@ def unload_model(model: object) -> None:
 
 
 def format_judge_prompt(query_text: str, answer_text: str, context_docs: List[Tuple[str, str]]) -> str:
-    """Construct a structured JSON faithfulness evaluation prompt."""
+    """Construct an enhanced structured JSON faithfulness evaluation prompt."""
     doc_blocks = []
     for doc_id, text in context_docs:
-        doc_blocks.append(f"[Document {doc_id}]: {text}")
+        doc_blocks.append(f"--- BEGIN DOCUMENT {doc_id} ---\n{text}\n--- END DOCUMENT {doc_id} ---")
     context_str = "\n\n".join(doc_blocks)
 
     system_prompt = (
-        "You are an expert scientific evaluator. Your job is to assess the FAITHFULNESS of a generated RAG answer. "
-        "Faithfulness means that ALL factual claims made in the answer are strictly supported by the provided context documents. "
-        "Do NOT rely on outside knowledge.\n\n"
-        "You must respond ONLY with a valid JSON object matching this schema:\n"
+        "You are an expert scientific evaluator. Your job is to assess the FAITHFULNESS of a generated RAG answer.\n\n"
+        "EVALUATION STEPS:\n"
+        "1. Extract all atomic factual claims made in the Generated Answer (ignore formatting labels like VERDICT: or EXPLANATION:).\n"
+        "2. For each claim, check whether it is DIRECTLY supported or scientifically entailed by the provided Context Documents.\n"
+        "3. Compute faithfulness_score = supported_claims / total_claims (between 0.0 and 1.0).\n\n"
+        "ENTAILMENT RULES:\n"
+        "- SUPPORTED: The claim is explicitly stated in the context or is a direct, valid scientific paraphrase/synonym.\n"
+        "- UNSUPPORTED: The claim contradicts the context, introduces unmentioned scientific facts, or relies on external knowledge.\n\n"
+        "EXAMPLE JSON OUTPUT:\n"
         "{\n"
-        '  "faithfulness_score": float (between 0.0 and 1.0),\n'
-        '  "total_claims": int,\n'
-        '  "supported_claims": int,\n'
-        '  "unsupported_claims": list of strings (claims not supported by context)\n'
-        "}"
+        '  "faithfulness_score": 0.5,\n'
+        '  "total_claims": 2,\n'
+        '  "supported_claims": 1,\n'
+        '  "unsupported_claims": ["MicroRNA-21 causes cardiac hypertrophy"]\n'
+        "}\n\n"
+        "You must respond ONLY with a valid JSON object matching this schema."
     )
 
     user_prompt = (
         f"Context Documents:\n{context_str}\n\n"
         f"Query Claim: {query_text}\n\n"
-        f"Generated Answer: {answer_text}\n\n"
+        f"Generated Answer:\n{answer_text}\n\n"
         "Evaluate the faithfulness of the answer against the context documents and output the JSON evaluation:"
     )
 
