@@ -1,114 +1,124 @@
-# Implementation Plan: Stage 3 — Multi-Model Staged Reranking & 3x3 Factorial Grid
+# Implementation Plan: Stage 4 — Local Answer Generation (Qwen2.5-1.5B-Instruct)
 
-Document Version: 2.0
-Target Stage: Stage 3 (Phase 1 Multi-Model Reranking & Pareto Frontier Selection)
-Specification Source: slotA-methodology.md (§2, §3, §4, §9 Step 3) & notes/stage2-verification.md
+Document Version: 3.0
+Target Stage: Stage 4 (Phase 2 Local Answer Generation for Pareto Frontier Survivors)
+Specification Source: slotA-methodology.md (§4, §6, §9 Step 5) & notes/stage3-verification.md
 
 ===============================================================================
-1. STAGE 3 OBJECTIVES & SCOPE
+1. STAGE 4 OBJECTIVES & SCOPE
 ===============================================================================
 
-Stage 3 completes Phase 1 of the experimental design by scoring all 3 candidate sets generated in Stage 2 (BM25, Dense bge-base, RRF Hybrid) through two modern reranker champions:
-  1. `BAAI/bge-reranker-v2-m3` (Cross-Encoder champion)
-  2. `BAAI/bge-reranker-v2-gemma` (Decoder/LLM-based reranker champion, 2.5B parameters)
+Stage 4 begins Phase 2 (Generation & Faithfulness Scoring) of the RAG evaluation harness.
+It runs local answer generation for the 4 surviving Pareto frontier configurations identified in Stage 3:
+  1. `Dense (bge-base) -> none` (Speed Champion: 3.19 ms, 0.7407 nDCG@10)
+  2. `Dense -> bge-v2-m3` (Lightweight Rerank Knee: 1,831.80 ms, 0.7420 nDCG@10)
+  3. `RRF Hybrid -> bge-v2-gemma` (Balanced Rerank Knee: 6,256.78 ms, 0.7796 nDCG@10)
+  4. `Dense -> bge-v2-gemma` (Quality Champion: 6,376.81 ms, 0.7844 nDCG@10)
 
 Key Deliverables:
-- 6 Reranked Runs: Rerank the top-50 candidates for all 300 test queries across 3 candidate sets x 2 rerankers.
-- Staged GPU Memory Management: Enforce strict single-model VRAM residency (T4 16GB ceiling). Load m3, score all arms, unload from VRAM; then load gemma (fp16 or 4-bit fallback), score all arms, unload.
-- Complete 3x3 Factorial Grid (9 cells): Evaluate Recall@10, MRR, nDCG@10, P@1, and total end-to-end query latency for all 9 cells.
-- Quality-vs-Latency Pareto Frontier Selection: Construct the Pareto curve, identify dominated configurations, and select the top 2-3 survivor configurations to advance to Phase 2 (Generation & Faithfulness).
+- Local Generator Integration: Adapt `src/generate.py` from Reference Repo A (`tim-ponomarev/hybrid-rag`), replacing external API calls with local `Qwen/Qwen2.5-1.5B-Instruct` via HuggingFace `transformers`.
+- Citation-Aware RAG Prompting: Format top-5 retrieved context passages with explicit `[Document {doc_id}]: {text}` tags and instruct Qwen2.5-1.5B to answer using ONLY the context with inline citations.
+- Deterministic Answer Generation: Generate answers for all 300 test queries across all 4 Pareto survivor runs using greedy decoding (`temperature=0.0`, `max_new_tokens=256`).
+- Latency & Output Persistence: Measure answer generation latency per query and save generated runs to `artifacts/runs/gen_*.json`.
+- GPU VRAM Cleanup: Unload Qwen2.5-1.5B cleanly from GPU VRAM (`del generator; torch.cuda.empty_cache(); gc.collect()`) to unblock Stage 5 (Local Qwen2.5-7B Faithfulness Judge).
 
 ===============================================================================
-2. RERANKER MODELS & STAGED GPU ARCHITECTURE
+2. GENERATOR MODEL & GPU MEMORY GUARDRAILS
 ===============================================================================
 
-Model 1: `BAAI/bge-reranker-v2-m3`
-- Type: Cross-Encoder (sequence classification).
-- Size / VRAM: ~1.1 GiB (fp16 on CUDA with SDPA attention).
-- Scoring: Computes similarity logits for (query, doc_text) pairs in batch.
+Model: `Qwen/Qwen2.5-1.5B-Instruct`
+- Type: Causal LLM Generator (1.5 billion parameters).
+- Precision: `fp16` on CUDA with PyTorch SDPA (`attn_implementation="sdpa"`).
+- VRAM Footprint: ~3.0 GiB static weight VRAM.
+- Why 1.5B? Small, fast local instruction-tuned LLM that executes in milliseconds per query on a T4 GPU without exceeding memory limits.
 
-Model 2: `BAAI/bge-reranker-v2-gemma`
-- Type: Decoder-based / LLM reranker (2.5B parameters).
-- Size / VRAM: ~5.0 GiB (fp16 on CUDA). If VRAM tight, fallback to 4-bit quantization via `bitsandbytes` (`load_in_4bit=True`).
-- Scoring: Causal LLM logit extraction for query-document relevance.
-
-Memory Residency Policy (Non-Negotiable §3):
-- Only ONE model resident in VRAM at any time.
-- After m3 finishes all 3 candidate sets, `del model`, `torch.cuda.empty_cache()`, `gc.collect()` before instantiating gemma.
-- Persistent disk storage: Every run is saved to `artifacts/runs/` immediately upon completion so session timeouts never lose work.
+VRAM Guardrails & Staged Residency:
+- Generator runs strictly AFTER Stage 3 rerankers are unloaded.
+- Generator unloads completely from VRAM BEFORE Stage 5 (`Qwen2.5-7B-Instruct` judge) loads.
+- Strictly single-model residency enforced at all times.
 
 ===============================================================================
 3. DATA FLOW & ARTIFACT SPECIFICATION
 ===============================================================================
 
 Input Artifacts (`artifacts/runs/` & `artifacts/index/`):
-- `artifacts/runs/retrieval_bm25.json`: BM25 candidate runs (top-50)
-- `artifacts/runs/retrieval_dense.json`: Dense candidate runs (top-50)
-- `artifacts/runs/retrieval_rrf.json`: RRF Hybrid candidate runs (top-50)
+- `artifacts/runs/retrieval_dense.json`: Dense candidate run
+- `artifacts/runs/rerank_m3_dense.json`: Dense + m3 reranked run
+- `artifacts/runs/rerank_gemma_rrf.json`: RRF + gemma reranked run
+- `artifacts/runs/rerank_gemma_dense.json`: Dense + gemma reranked run
 - `artifacts/index/docmap.json`: Document text lookup (`docid_to_text`)
-- BEIR SciFact test queries & qrels loaded via `src/common.py`
+- BEIR SciFact test dataset (`queries`, `qrels`)
 
 Output Artifacts (`artifacts/runs/`):
-- `rerank_m3_bm25.json`: Reranked candidates & metrics for BM25 + bge-v2-m3
-- `rerank_m3_dense.json`: Reranked candidates & metrics for Dense + bge-v2-m3
-- `rerank_m3_rrf.json`: Reranked candidates & metrics for RRF + bge-v2-m3
-- `rerank_gemma_bm25.json`: Reranked candidates & metrics for BM25 + bge-v2-gemma
-- `rerank_gemma_dense.json`: Reranked candidates & metrics for Dense + bge-v2-gemma
-- `rerank_gemma_rrf.json`: Reranked candidates & metrics for RRF + bge-v2-gemma
-- `stage3_rerank_metrics.json`: Complete 9-cell factorial grid, Pareto frontier analysis, and Phase 2 survivor selections.
+- `artifacts/runs/gen_dense_none.json`: Generated answers for Dense -> none
+- `artifacts/runs/gen_dense_m3.json`: Generated answers for Dense -> bge-v2-m3
+- `artifacts/runs/gen_rrf_gemma.json`: Generated answers for RRF Hybrid -> bge-v2-gemma
+- `artifacts/runs/gen_dense_gemma.json`: Generated answers for Dense -> bge-v2-gemma
+- `artifacts/runs/stage4_generation_summary.json`: Summary of generated runs & generation latency
 
 ===============================================================================
 4. STEP-BY-STEP IMPLEMENTATION PLAN
 ===============================================================================
 
-Step 1: Reranker Wrappers Module (`src/rerankers.py`)
-- Implement `M3Reranker` class wrapping `FlagEmbedding.FlagReranker` or `transformers.AutoModelForSequenceClassification` with batching and fp16 SDPA support.
-- Implement `GemmaReranker` class wrapping `FlagEmbedding.FlagLLMReranker` or `transformers.AutoModelForCausalLM` with optional 4-bit bitsandbytes fallback.
-- Standardize interface: `rerank_candidates(query_text, candidate_docs) -> List[Tuple[doc_id, score, text]]`.
+Step 1: Generator Module (`src/generator.py`)
+- Implement `LocalGenerator` class wrapping `Qwen/Qwen2.5-1.5B-Instruct` via HuggingFace `AutoModelForCausalLM` and `AutoTokenizer`.
+- Include SDPA attention, `torch.float16` precision, greedy decoding (`temperature=0.0`, `do_sample=False`, `max_new_tokens=256`).
+- Define citation prompt template formatting top-K (top-5) context documents:
+  ```
+  Context Documents:
+  [Document 101]: Abstract text...
+  [Document 202]: Abstract text...
 
-Step 2: Staged Reranking Pipeline (`src/03_rerank.py`)
-- Load Stage 2 candidate runs (`retrieval_bm25.json`, `retrieval_dense.json`, `retrieval_rrf.json`) and document texts.
-- **Stage 3A (m3 Reranking):** Load `bge-v2-m3`, rerank all 3 candidate sets, measure per-query rerank latency, evaluate metrics, save `rerank_m3_*.json` files. Unload m3 from GPU VRAM.
-- **Stage 3B (gemma Reranking):** Load `bge-v2-gemma`, rerank all 3 candidate sets, measure per-query rerank latency, evaluate metrics, save `rerank_gemma_*.json` files. Unload gemma from GPU VRAM.
-- Assemble full 3x3 Factorial Grid matrix (9 cells).
-- Compute Pareto Frontier (nDCG@10 vs Total Query Latency ms), identify non-dominated knee configurations, and output `stage3_rerank_metrics.json`.
+  Query: Scientific claim query text...
+  Task: Answer the query based ONLY on the provided context documents. Cite source documents inline as [Document doc_id].
+  ```
 
-Step 3: Verification Script (`src/verify_stage3.py`)
-- Cold reload all 9 run JSONs and `stage3_rerank_metrics.json` from `artifacts/runs/`.
-- Validate candidate structure (300 test queries, 50 candidates/query, docids resolve).
-- Cross-validate metrics against `pytrec_eval`.
-- Render the complete **3x3 Factorial Grid Table (9 cells)**.
-- Report Pareto Frontier Ranking & list top 2-3 survivor configurations.
+Step 2: Stage 4 Runner (`src/04_generate.py`)
+- Load SciFact dataset (`queries`), `docmap.json`, and the 4 Pareto survivor run JSONs.
+- Instantiate `LocalGenerator` on CUDA GPU.
+- For each survivor configuration:
+  - For each of the 300 test queries:
+    - Extract top-5 retrieved context documents.
+    - Format citation prompt -> run Qwen2.5-1.5B generation -> measure generation time (ms).
+    - Store generated answer string, cited docids, and generation latency.
+  - Save run JSON to `artifacts/runs/gen_{config_slug}.json`.
+- Compute generation summary metrics (mean generation latency ms/query, answer word counts) and save `stage4_generation_summary.json`.
+- Unload `LocalGenerator` from GPU VRAM (`unload_model()`).
+
+Step 3: Stage 4 Verification Script (`src/verify_stage4.py`)
+- Cold reload all 4 generated answer JSONs and `stage4_generation_summary.json`.
+- Check answer completeness (300 queries per survivor run, non-empty answer strings).
+- Check citation integrity (presence of `[Document ...]` tags in generated answers).
+- Display summary table of answer generation times and output sizes.
 
 ===============================================================================
 5. COLAB EXECUTION & VERIFICATION COMMANDS
 ===============================================================================
 
-Files created/modified in Stage 3:
-- `src/rerankers.py`
-- `src/03_rerank.py`
-- `src/verify_stage3.py`
+Files to create in Stage 4:
+- `src/generator.py`
+- `src/04_generate.py`
+- `src/verify_stage4.py`
 
-Commands to run on Colab (GPU environment):
+Colab execution block:
 ```python
 import os
 PROJECT = '/content/drive/MyDrive/slotA-rag-harness'
 os.environ['SLOTA_ROOT'] = PROJECT
 os.chdir(PROJECT)
 
-# Execute multi-model staged reranking across all 3 candidate sets
-!python src/03_rerank.py
+# Execute Stage 4 local answer generation for 4 Pareto survivors
+!python src/04_generate.py
 
-# Verify all 9 grid cells, metrics, and Pareto frontier in fresh process
-!python src/verify_stage3.py
+# Verify generated answer artifacts in a fresh process
+!python src/verify_stage4.py
 ```
 
 ===============================================================================
 6. CHECKS & ACCEPTANCE CRITERIA
 ===============================================================================
-[ ] All 6 reranked runs produce top-50 reranked candidates for all 300 test queries.
-[ ] Only ONE reranker model is loaded in VRAM at any time (`m3` fully unloaded before `gemma` loads).
-[ ] If `gemma` is quantized to 4-bit due to VRAM bounds, quantization is recorded in metadata.
-[ ] Complete 3x3 grid (9 cells) computed with Recall@10, MRR, nDCG@10, P@1, and Total Latency.
-[ ] All 9 cells cross-validated with `pytrec_eval`.
-[ ] Pareto frontier calculated, dominated configs identified, and top 2-3 survivors selected for Phase 2.
+[ ] All 4 Pareto survivor runs produce generated answers for all 300 test queries (1,200 total answers).
+[ ] Prompt formatting correctly injects top-5 retrieved context documents with explicit docids.
+[ ] Greedy decoding (`temperature=0.0`) produces deterministic, reproducible answers.
+[ ] Generation latency (ms/query) is recorded and saved per configuration.
+[ ] `Qwen2.5-1.5B-Instruct` is completely unloaded from VRAM before script termination.
