@@ -10,7 +10,7 @@
 artifacts/
 
 # Study-only reference repos (cloned, never run to completion, numbers never trusted)
-# reference/ is tracked by parent repository
+reference/
 
 
 # Model / dataset caches
@@ -70,6 +70,7 @@ env/
 .env
 .env.*
 !.env.example
+.claude
 
 # OS
 .DS_Store
