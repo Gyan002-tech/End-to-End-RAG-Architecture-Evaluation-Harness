@@ -24,7 +24,7 @@ from typing import Any
 # Paths. Override the root with SLOTA_ROOT so the same code runs from a Colab
 # Drive mount (/content/drive/MyDrive/slotA-rag-harness) or a local checkout.
 # ---------------------------------------------------------------------------
-PROJECT_ROOT = Path(os.environ.get("SLOTA_ROOT", Path(__file__).resolve().parent.parent))
+PROJECT_ROOT = Path(os.environ.get("SLOTA_ROOT", Path(__file__).resolve().parent.parent.parent))
 
 ARTIFACT_DIR = PROJECT_ROOT / "artifacts"
 DATA_DIR = ARTIFACT_DIR / "data"        # SciFact download cache (gitignored)
