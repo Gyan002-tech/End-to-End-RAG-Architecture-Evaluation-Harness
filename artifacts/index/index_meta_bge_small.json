@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "stage": "01c_index_bge_small",
+  "created_utc": "2026-08-06T22:57:40+00:00",
+  "model": "BAAI/bge-small-en-v1.5",
+  "dim": 384,
+  "params": "33M",
+  "faiss_ntotal": 5183,
+  "timings_sec": {
+    "model_load": 8.51,
+    "embed": 16.01,
+    "faiss_write": 0.04,
+    "total": 24.78
+  },
+  "versions": {
+    "torch": "2.11.0+cu128",
+    "transformers": "4.46.3",
+    "sentence-transformers": "3.3.1",
+    "faiss-cpu": "1.9.0",
+    "rank-bm25": "0.2.2",
+    "beir": "2.0.0",
+    "numpy": "1.26.4"
+  }
+}

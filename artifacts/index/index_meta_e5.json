@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "stage": "01b_index_e5",
+  "created_utc": "2026-08-06T22:47:42+00:00",
+  "model": "intfloat/e5-large-v2",
+  "dim": 1024,
+  "prefix_passage": "passage: ",
+  "prefix_query": "query: ",
+  "faiss_ntotal": 5183,
+  "timings_sec": {
+    "model_load": 16.48,
+    "embed": 87.61,
+    "faiss_write": 0.06,
+    "total": 106.59
+  },
+  "versions": {
+    "torch": "2.11.0+cu128",
+    "transformers": "4.46.3",
+    "sentence-transformers": "3.3.1",
+    "faiss-cpu": "1.9.0",
+    "rank-bm25": "0.2.2",
+    "beir": "2.0.0",
+    "numpy": "1.26.4"
+  }
+}

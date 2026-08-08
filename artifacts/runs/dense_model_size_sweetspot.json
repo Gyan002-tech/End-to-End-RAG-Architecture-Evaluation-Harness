@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "stage": "02c_retrieve_bge_small",
+  "created_utc": "2026-08-06T22:57:54+00:00",
+  "sweetspot_matrix": [
+    {
+      "tier": "Small (33M params)",
+      "model": "BAAI/bge-small-en-v1.5",
+      "dim": 384,
+      "params": "33M",
+      "recall@10": 0.83622,
+      "mrr": 0.68635,
+      "ndcg@10": 0.71271,
+      "p@1": 0.60667,
+      "latency_ms": 2.29
+    },
+    {
+      "tier": "Base (109M params) \u2605",
+      "model": "BAAI/bge-base-en-v1.5",
+      "dim": 768,
+      "params": "109M",
+      "recall@10": 0.87089,
+      "mrr": 0.70851,
+      "ndcg@10": 0.74065,
+      "p@1": 0.62,
+      "latency_ms": 3.19
+    },
+    {
+      "tier": "Large (335M params)",
+      "model": "intfloat/e5-large-v2",
+      "dim": 1024,
+      "params": "335M",
+      "recall@10": 0.84383,
+      "mrr": 0.6936,
+      "ndcg@10": 0.72305,
+      "p@1": 0.60667,
+      "latency_ms": 3.55
+    }
+  ]
+}

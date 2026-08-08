@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "stage": "04_generate",
+  "created_utc": "2026-08-08T01:10:43+00:00",
+  "generator_model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "survivor_generations": [
+    {
+      "config": "Dense -> none",
+      "output_file": "gen_dense_none.json",
+      "mean_gen_latency_ms": 5283.43,
+      "truncations_count": 4,
+      "total_queries": 300
+    },
+    {
+      "config": "Dense -> bge-v2-m3",
+      "output_file": "gen_dense_m3.json",
+      "mean_gen_latency_ms": 5232.06,
+      "truncations_count": 5,
+      "total_queries": 300
+    },
+    {
+      "config": "RRF Hybrid -> bge-v2-gemma",
+      "output_file": "gen_rrf_gemma.json",
+      "mean_gen_latency_ms": 5266.41,
+      "truncations_count": 5,
+      "total_queries": 300
+    },
+    {
+      "config": "Dense -> bge-v2-gemma",
+      "output_file": "gen_dense_gemma.json",
+      "mean_gen_latency_ms": 5233.41,
+      "truncations_count": 5,
+      "total_queries": 300
+    }
+  ]
+}

@@ -4,10 +4,8 @@
 # (reference repos) stays out of git. Only source + notes are tracked.
 # ---------------------------------------------------------------------------
 
-# Derived artifacts — regenerable by re-running the stage that made them.
-# NOTE: the authenticity checklist requires every number be traceable to a
-# JSON file in artifacts/, so back these up to Drive, not to git.
-artifacts/
+# Derived artifacts — raw data cache stays ignored; index and runs are tracked
+artifacts/data/
 
 # Study-only reference repos (cloned, never run to completion, numbers never trusted)
 reference/
@@ -29,6 +27,7 @@ flagembedding_cache/
 *.faiss
 *.pkl
 *.pickle
+!artifacts/index/*
 *.npy
 *.npz
 *.pt

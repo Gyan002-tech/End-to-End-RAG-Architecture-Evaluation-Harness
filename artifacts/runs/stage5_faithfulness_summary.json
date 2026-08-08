@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "stage": "05_judge",
+  "created_utc": "2026-08-08T11:02:02+00:00",
+  "judge_model": "Qwen/Qwen2.5-3B-Instruct",
+  "phase2_pareto_survivors": [
+    {
+      "config": "Dense -> none",
+      "output_file": "judge_dense_none.json",
+      "ndcg@10": 0.0,
+      "total_ret_lat_ms": 0.0,
+      "faithfulness_score": 0.5388,
+      "judge_latency_ms": 3037.07,
+      "total_queries": 300
+    },
+    {
+      "config": "Dense -> bge-v2-m3",
+      "output_file": "judge_dense_m3.json",
+      "ndcg@10": 0.74201,
+      "total_ret_lat_ms": 1831.8,
+      "faithfulness_score": 0.5642,
+      "judge_latency_ms": 3096.03,
+      "total_queries": 300
+    },
+    {
+      "config": "RRF Hybrid -> bge-v2-gemma",
+      "output_file": "judge_rrf_gemma.json",
+      "ndcg@10": 0.77965,
+      "total_ret_lat_ms": 6256.78,
+      "faithfulness_score": 0.5713,
+      "judge_latency_ms": 3028.33,
+      "total_queries": 300
+    },
+    {
+      "config": "Dense -> bge-v2-gemma",
+      "output_file": "judge_dense_gemma.json",
+      "ndcg@10": 0.78437,
+      "total_ret_lat_ms": 6376.81,
+      "faithfulness_score": 0.5497,
+      "judge_latency_ms": 3051.01,
+      "total_queries": 300
+    }
+  ]
+}
