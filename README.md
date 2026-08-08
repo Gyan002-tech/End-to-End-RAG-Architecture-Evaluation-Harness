@@ -133,11 +133,11 @@ We evaluated whether larger embedding models improve domain retrieval on SciFact
 ## ⚡ Quickstart Guide
 
 ### 1. Installation
-Clone the repository and install the requirements:
 
+**Local Environment:**
 ```bash
-git clone https://github.com/your-username/rag-eval-harness.git
-cd rag-eval-harness
+git clone https://github.com/Gyan002-tech/End-to-End-RAG-Architecture-Evaluation-Harness.git
+cd End-to-End-RAG-Architecture-Evaluation-Harness
 
 # Create virtual environment
 python3 -m venv .venv
@@ -146,6 +146,13 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 ```
+
+> [!TIP]
+> **Running on Google Colab (T4 GPU):**
+> PyTorch and CUDA are already pre-installed and aligned on Google Colab GPU runtimes. If running on Colab, use `requirements-colab.txt` to avoid overwriting Colab's pre-installed PyTorch build:
+> ```bash
+> !pip install -r requirements-colab.txt
+> ```
 
 ### 2. Running Verification Suite
 To verify pre-computed artifacts and score metrics without running heavy GPU inference:
