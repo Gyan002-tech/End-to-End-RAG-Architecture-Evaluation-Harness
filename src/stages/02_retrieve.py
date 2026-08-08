@@ -28,12 +28,12 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 # Ensure project root is in sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from src.common import (  # noqa: E402
+from src.engine.common import (  # noqa: E402
     BGE_QUERY_INSTRUCTION,
     BM25_PATH,
     DOCMAP_PATH,
@@ -51,7 +51,7 @@ from src.common import (  # noqa: E402
     load_scifact,
     stage1_artifacts_present,
 )
-from src.metrics import evaluate_run, test_canary_metrics  # noqa: E402
+from src.engine.metrics import evaluate_run, test_canary_metrics  # noqa: E402
 
 BANNER = "=" * 74
 

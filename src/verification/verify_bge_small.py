@@ -13,9 +13,9 @@ import sys
 from pathlib import Path
 
 # Ensure project root is in sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from src.common import INDEX_DIR, RUNS_DIR, SCIFACT_SPLIT, load_scifact
+from src.engine.common import INDEX_DIR, RUNS_DIR, SCIFACT_SPLIT, load_scifact
 
 BANNER = "=" * 74
 FAISS_SMALL_PATH = INDEX_DIR / "faiss_bge_small.index"

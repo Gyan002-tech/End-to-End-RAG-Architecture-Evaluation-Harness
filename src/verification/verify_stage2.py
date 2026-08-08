@@ -22,16 +22,16 @@ from pathlib import Path
 from typing import Dict, List, Set
 
 # Ensure project root is in sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from src.common import (  # noqa: E402
+from src.engine.common import (  # noqa: E402
     DOCMAP_PATH,
     RUNS_DIR,
     SCIFACT_SPLIT,
     load_docmap,
     load_scifact,
 )
-from src.metrics import evaluate_run, test_canary_metrics  # noqa: E402
+from src.engine.metrics import evaluate_run, test_canary_metrics  # noqa: E402
 
 BANNER = "=" * 74
 

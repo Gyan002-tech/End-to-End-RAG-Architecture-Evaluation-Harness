@@ -35,19 +35,19 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 # Ensure project root is in sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 from tqdm import tqdm  # noqa: E402
 
-from src.common import (  # noqa: E402
+from src.engine.common import (  # noqa: E402
     RUNS_DIR,
     SCIFACT_SPLIT,
     load_docmap,
     load_scifact,
 )
-from src.judge import LocalJudge, unload_model  # noqa: E402
+from src.engine.judge import LocalJudge, unload_model  # noqa: E402
 
 BANNER = "=" * 74
 

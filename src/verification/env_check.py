@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 # Ensure project root is in sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 EXPECTED_GPU_SUBSTRING = "T4"
 EXPECTED_CAPABILITY = (7, 5)  # sm_75, Turing

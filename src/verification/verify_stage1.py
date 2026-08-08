@@ -26,11 +26,11 @@ import sys
 from pathlib import Path
 
 # Ensure project root is in sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import numpy as np  # noqa: E402
 
-from src.common import (  # noqa: E402
+from src.engine.common import (  # noqa: E402
     BGE_QUERY_INSTRUCTION,
     BM25_PATH,
     DOCMAP_PATH,

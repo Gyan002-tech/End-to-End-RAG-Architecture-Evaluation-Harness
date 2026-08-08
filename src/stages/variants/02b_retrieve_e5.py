@@ -25,18 +25,18 @@ from pathlib import Path
 from typing import Dict, List
 
 # Ensure project root is in sys.path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from src.common import (  # noqa: E402
+from src.engine.common import (  # noqa: E402
     INDEX_DIR,
     RUNS_DIR,
     SCIFACT_SPLIT,
     load_scifact,
 )
-from src.metrics import evaluate_run  # noqa: E402
+from src.engine.metrics import evaluate_run  # noqa: E402
 
 BANNER = "=" * 74
 E5_MODEL = "intfloat/e5-large-v2"
